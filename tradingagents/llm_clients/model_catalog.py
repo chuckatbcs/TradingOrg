@@ -105,11 +105,13 @@ MODEL_OPTIONS: ProviderModeOptions = {
             ("Qwen3:latest (8B, local)", "qwen3:latest"),
             ("GPT-OSS:latest (20B, local)", "gpt-oss:latest"),
             ("GLM-4.7-Flash:latest (30B, local)", "glm-4.7-flash:latest"),
+            ("Custom model ID", "custom"),
         ],
         "deep": [
             ("GLM-4.7-Flash:latest (30B, local)", "glm-4.7-flash:latest"),
             ("GPT-OSS:latest (20B, local)", "gpt-oss:latest"),
             ("Qwen3:latest (8B, local)", "qwen3:latest"),
+            ("Custom model ID", "custom"),
         ],
     },
 }
@@ -128,6 +130,7 @@ def get_known_models() -> Dict[str, List[str]]:
                 value
                 for options in mode_options.values()
                 for _, value in options
+                if value != "custom"
             }
         )
         for provider, mode_options in MODEL_OPTIONS.items()
