@@ -56,8 +56,10 @@ class OpenAIClient(BaseLLMClient):
 
     For native OpenAI models, uses the Responses API (/v1/responses) which
     supports reasoning_effort with function tools across all model families
-    (GPT-4.1, GPT-5). Third-party compatible providers (xAI, OpenRouter,
-    Ollama) use standard Chat Completions.
+    (GPT-4.1, GPT-5). Third-party compatible providers use standard Chat
+    Completions. A caller-provided base_url always wins over provider defaults,
+    which allows remote Ollama or other OpenAI-compatible endpoints over
+    Tailscale/private networks.
     """
 
     def __init__(
@@ -75,16 +77,18 @@ class OpenAIClient(BaseLLMClient):
         self.warn_if_unknown_model()
         llm_kwargs = {"model": self.model}
 
-        # Provider-specific base URL and auth
+        # Provider-specific base URL and auth. Explicit base_url wins so Hermes
+        # can route Ollama/OpenAI-compatible traffic to a home PC over Tailscale
+        # or to a compatible free/cheap cloud endpoint.
         if self.provider in _PROVIDER_CONFIG:
-            base_url, api_key_env = _PROVIDER_CONFIG[self.provider]
-            llm_kwargs["base_url"] = base_url
+            provider_base_url, api_key_env = _PROVIDER_CONFIG[self.provider]
+            llm_kwargs["base_url"] = self.base_url or provider_base_url
             if api_key_env:
                 api_key = os.environ.get(api_key_env)
                 if api_key:
                     llm_kwargs["api_key"] = api_key
             else:
-                llm_kwargs["api_key"] = "ollama"
+                llm_kwargs["api_key"] = os.environ.get("OLLAMA_API_KEY", "ollama")
         elif self.base_url:
             llm_kwargs["base_url"] = self.base_url
 

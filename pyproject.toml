@@ -34,6 +34,9 @@ dependencies = [
 
 [project.scripts]
 tradingagents = "cli.main:app"
+tradingagents-analyze-run = "tradingagents.automation.analyze_run:main"
+tradingagents-postgame = "tradingagents.automation.postgame:main"
+tradingagents-update-lessons = "tradingagents.automation.update_lessons:main"
 
 [tool.setuptools.packages.find]
 include = ["tradingagents*", "cli*"]
