@@ -3,8 +3,19 @@ services:
     build: .
     env_file:
       - .env
+    environment:
+      - LLM_PROVIDER=${LLM_PROVIDER:-ollama}
+      - LLM_BACKEND_URL=${LLM_BACKEND_URL:-http://host.docker.internal:11434/v1}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434/v1}
+      - QUICK_THINK_LLM=${QUICK_THINK_LLM:-qwen3:latest}
+      - DEEP_THINK_LLM=${DEEP_THINK_LLM:-qwen3:latest}
+      - MODEL_ROUTING_MODE=${MODEL_ROUTING_MODE:-cost_optimized}
     volumes:
       - tradingagents_data:/home/appuser/.tradingagents
+      - ./reports:/home/appuser/app/reports
+      - ./memory:/home/appuser/app/memory
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     tty: true
     stdin_open: true
 
@@ -21,8 +32,15 @@ services:
       - .env
     environment:
       - LLM_PROVIDER=ollama
+      - LLM_BACKEND_URL=${LLM_BACKEND_URL:-http://ollama:11434/v1}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434/v1}
+      - QUICK_THINK_LLM=${QUICK_THINK_LLM:-qwen3:latest}
+      - DEEP_THINK_LLM=${DEEP_THINK_LLM:-qwen3:latest}
+      - MODEL_ROUTING_MODE=${MODEL_ROUTING_MODE:-cost_optimized}
     volumes:
       - tradingagents_data:/home/appuser/.tradingagents
+      - ./reports:/home/appuser/app/reports
+      - ./memory:/home/appuser/app/memory
     depends_on:
       - ollama
     tty: true
