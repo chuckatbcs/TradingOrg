@@ -36,9 +36,10 @@ def _timeout_sec() -> float:
 
 def _run_cmd(cmd: str) -> subprocess.CompletedProcess[str]:
     # Windows-friendly: shell=True when not easily split; prefer list when possible
+    timeout = _timeout_sec()
     if os.name == "nt":
-        return subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=120)
-    return subprocess.run(shlex.split(cmd), capture_output=True, text=True, timeout=120)
+        return subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout)
+    return subprocess.run(shlex.split(cmd), capture_output=True, text=True, timeout=timeout)
 
 
 def ensure_local_llm(
