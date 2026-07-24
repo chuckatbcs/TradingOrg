@@ -112,6 +112,8 @@ def _route_for_agent(current_agent: str | None) -> str | None:
 
 def is_model_route_error(exc: BaseException) -> bool:
     text = str(exc).lower()
+    if "unavailable for free" in text or "no longer available for free" in text:
+        return True
     if "model" in text and "not found" in text:
         return True
     if "model_not_found" in text:

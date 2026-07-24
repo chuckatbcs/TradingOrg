@@ -16,6 +16,12 @@ def test_detects_model_not_found():
     assert is_model_route_error(ConnectionError("Connection refused"))
     assert is_model_route_error(RuntimeError("model_not_found: openrouter/foo"))
     assert is_model_route_error(RuntimeError("model foo does not exist on provider"))
+    assert is_model_route_error(
+        RuntimeError(
+            "Error code: 404 - This model is unavailable for free. "
+            "The paid version is available now"
+        )
+    )
     assert not is_model_route_error(ValueError("invalid ticker"))
 
 

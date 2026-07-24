@@ -105,8 +105,8 @@ def test_analyze_rejects_nemotron_before_run(monkeypatch):
     }
     monkeypatch.setenv("TRADINGAGENTS_LLM_PROVIDER", "openrouter")
     client = TestClient(app)
-    with mock.patch("webapp.server.probe_llm_endpoint", return_value=fake_probe), \
-         mock.patch("webapp.server.ensure_local_llm") as launch, \
+    with mock.patch("webapp.llm_route_prep.probe_llm_endpoint", return_value=fake_probe), \
+         mock.patch("webapp.llm_route_prep.ensure_local_llm") as launch, \
          mock.patch("webapp.llm_verify.smoke_tool_call", return_value={"ok": True, "error": None}):
         launch.return_value = mock.Mock(attempted=False, reached=True, error=None, detail=None)
         resp = client.post(

@@ -63,40 +63,62 @@ def smoke_tool_call(
         return {"ok": False, "error": str(exc)}
 
 
-def verify_routes(routes: list[dict[str, Any]]) -> dict[str, Any]:
+def verify_routes(routes: list[dict[str, Any]], *, max_candidates: int = 3) -> dict[str, Any]:
+    """Resolve and smoke-test each route; retry closest matches when smoke fails."""
     out_routes = []
     notes: list[str] = []
     all_ok = True
     for route in routes:
+        catalog = list(route.get("catalog") or [])
+        exclude = set(route.get("exclude") or [])
+        requested = route.get("requested_model")
+        provider = route.get("provider")
+        backend_url = route.get("backend_url")
+        role = route.get("role")
+
         resolution = resolve_model(
-            route.get("requested_model"),
-            list(route.get("catalog") or []),
-            provider=route.get("provider"),
-            exclude=set(route.get("exclude") or []),
+            requested, catalog, provider=provider, exclude=exclude
         )
-        smoke = {"ok": False, "error": "unresolved model"}
-        if resolution.resolved:
-            smoke = smoke_tool_call(
-                route.get("provider"),
-                route.get("backend_url"),
-                resolution.resolved,
+        smoke: dict[str, Any] = {"ok": False, "error": "unresolved model"}
+        attempts = 0
+        while resolution.resolved and attempts < max_candidates:
+            attempts += 1
+            smoke = smoke_tool_call(provider, backend_url, resolution.resolved)
+            if smoke.get("ok"):
+                break
+            notes.append(
+                f"{role}: smoke failed for {resolution.resolved!r}: {smoke.get('error')}"
             )
+            exclude.add(resolution.resolved)
+            next_resolution = resolve_model(
+                requested, catalog, provider=provider, exclude=exclude
+            )
+            if not next_resolution.resolved or next_resolution.resolved == resolution.resolved:
+                break
+            notes.append(
+                f"{role}: trying next candidate {next_resolution.resolved!r}"
+            )
+            resolution = next_resolution
+
         ok = bool(resolution.resolved and smoke.get("ok"))
         all_ok = all_ok and ok
-        if resolution.remapped:
-            notes.append(
-                f"{route.get('role')}: remapped {resolution.requested!r} → {resolution.resolved!r}"
-            )
-        if not smoke.get("ok"):
-            notes.append(f"{route.get('role')}: smoke failed: {smoke.get('error')}")
+        remapped = bool(
+            resolution.resolved
+            and requested
+            and resolution.resolved != requested
+        )
+        if remapped:
+            notes.append(f"{role}: remapped {requested!r} → {resolution.resolved!r}")
+        elif not smoke.get("ok"):
+            notes.append(f"{role}: smoke failed: {smoke.get('error')}")
         out_routes.append(
             {
-                "role": route.get("role"),
-                "provider": route.get("provider"),
-                "backend_url": route.get("backend_url"),
-                "requested": resolution.requested,
+                "role": role,
+                "provider": provider,
+                "backend_url": backend_url,
+                "requested": requested,
                 "resolved": resolution.resolved,
-                "remapped": resolution.remapped,
+                "remapped": remapped or resolution.remapped,
                 "reason": resolution.reason,
                 "smoke_ok": bool(smoke.get("ok")),
                 "error": None if ok else (smoke.get("error") or resolution.reason),
