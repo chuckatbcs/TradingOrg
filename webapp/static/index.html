@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TradingAgents</title>
+<link rel="stylesheet" href="/static/style.css">
+<script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <span class="logo">TA</span>
+    <div>
+      <h1>TradingAgents</h1>
+      <span class="subtitle">Multi-Agent LLM Trading Framework</span>
+    </div>
+  </div>
+  <div class="header-right">
+    <nav class="top-nav" title="Research: run analyses. Firm: portfolio, screening, and execution.">
+      <button type="button" id="nav-research" class="nav-btn active" title="Run multi-agent ticker analyses">Research</button>
+      <button type="button" id="nav-firm" class="nav-btn" title="Portfolio, screener, fusion, and paper trading">Firm</button>
+    </nav>
+    <span id="provider-badge" class="badge">loading&hellip;</span>
+    <span id="health-dot" class="dot" title="Green = backend reachable"></span>
+  </div>
+</header>
+
+<main id="research-view">
+  <!-- Left: new analysis form -->
+  <aside class="panel form-panel">
+    <details class="guide-box">
+      <summary>Quick guide</summary>
+      <ul>
+        <li>Pick a ticker, date, and analysts, then <b>Run Analysis</b>.</li>
+        <li><b>LM Studio</b> (local) or <b>OpenRouter</b> (cloud) must be configured; see <a href="/docs/MODELS.md" target="_blank">model guide</a>.</li>
+        <li>Watch agent progress and reports on the right; runs take 5&ndash;15 min.</li>
+        <li>Reopen past runs from <b>History</b> to view fusion and paper execute.</li>
+      </ul>
+    </details>
+
+    <div class="section-head">
+      <h2>New Analysis</h2>
+      <p class="help-hint">Configure one ticker run; agents debate and produce a trade recommendation.</p>
+    </div>
+    <form id="analyze-form">
+      <label title="Stock symbol, including exchange suffix if needed (e.g. 0700.HK)">Ticker
+        <input type="text" id="ticker" placeholder="e.g. NVDA, 0700.HK, BTC-USD" required>
+      </label>
+      <p class="help-hint">Symbol to analyze; use exchange suffix for non-US listings.</p>
+
+      <label title="As-of date for market data and reports">Analysis date
+        <input type="date" id="trade-date" required>
+      </label>
+      <p class="help-hint">Historical as-of date for data; defaults to the latest sensible market date.</p>
+      <p id="market-date-warning" class="warning hidden"></p>
+
+      <fieldset>
+        <legend title="Specialist agents that gather data before the debate">Analyst team</legend>
+        <p class="help-hint">Enable specialists whose reports feed the bull/bear debate.</p>
+        <div id="analyst-checks" class="checks"></div>
+        <p id="openrouter-free-warning" class="warning hidden"></p>
+      </fieldset>
+
+      <details>
+        <summary title="LLM models and debate depth">Model settings</summary>
+        <p class="help-hint">Match your provider (LM Studio local or OpenRouter cloud). See <a href="/docs/MODELS.md" target="_blank">model guide</a>.</p>
+        <label title="Preset tuned for local 8GB VRAM (LM Studio)">Preset
+          <select id="model-preset"></select>
+        </label>
+        <p id="preset-hint" class="help-hint"></p>
+        <label title="Required for LM Studio, vLLM, llama.cpp, or another OpenAI-compatible local server">Local backend URL
+          <input type="url" id="backend-url" placeholder="http://host.docker.internal:1234/v1">
+        </label>
+        <p id="backend-url-hint" class="help-hint">LM Studio in Docker defaults to http://host.docker.internal:1234/v1. OpenRouter presets do not use this field.</p>
+        <p id="backend-url-warning" class="warning hidden"></p>
+        <label title="Primary model for complex reasoning and final decisions">Deep-think model
+          <select id="deep-model"></select>
+        </label>
+        <label title="Faster model for intermediate agent steps">Quick-think model
+          <select id="quick-model"></select>
+        </label>
+        <p class="help-hint" id="model-tools-hint">Agent runs require tool-capable models (function calling). On OpenRouter, pick a preset or a model from the filtered list.</p>
+        <p id="model-warning" class="error hidden"></p>
+        <button type="button" id="verify-models-btn" class="inline-btn">Verify models</button>
+        <p id="verify-status" class="help-hint" aria-live="polite"></p>
+        <label title="Bull vs bear research debate rounds (1–5)">Debate rounds
+          <input type="number" id="debate-rounds" min="1" max="5" value="1">
+        </label>
+        <p class="help-hint">More rounds = deeper bull/bear argument before the research manager decides.</p>
+        <label title="Portfolio risk debate rounds (1–5)">Risk rounds
+          <input type="number" id="risk-rounds" min="1" max="5" value="1">
+        </label>
+        <p class="help-hint">Risk-team debate rounds before the portfolio manager&rsquo;s final call.</p>
+        <label title="Match this to the model context length loaded in LM Studio">Context window tokens
+          <input type="number" id="context-window" min="4096" max="262144" step="1024" value="8192">
+        </label>
+        <p class="help-hint">LM Studio: set Developer &rarr; Context Length to the same value. 16K is preferred for full analyst runs; 8K should use budget mode.</p>
+        <div id="models-note" class="note"></div>
+      </details>
+
+      <button type="submit" id="run-btn" title="Start multi-agent analysis; progress appears on the right">Run Analysis</button>
+      <p class="help-hint">Starts the agent pipeline; live status and reports show in the run panel.</p>
+      <div id="form-error" class="error"></div>
+    </form>
+
+    <div class="section-head history-heading">
+      <h2>History</h2>
+      <p class="help-hint">Click a past run to reload its reports, fusion, and paper-execute option.</p>
+    </div>
+    <div id="history-list" class="history"></div>
+  </aside>
+
+  <!-- Right: active run -->
+  <section class="panel run-panel">
+    <div id="empty-state">
+      <p>Configure an analysis on the left and press <b>Run Analysis</b>.</p>
+      <p class="note">A full multi-agent run on a local model typically takes
+        5&ndash;15 minutes. Progress appears here live.</p>
+    </div>
+
+    <div id="run-view" class="hidden">
+      <div class="run-header">
+        <div>
+          <h2 id="run-title"></h2>
+          <span id="run-meta" class="note"></span>
+        </div>
+        <span id="run-status" class="badge"></span>
+      </div>
+
+      <div id="decision-banner" class="hidden"></div>
+      <div id="run-fusion-banner" class="hidden firm-fusion"></div>
+      <div id="run-error" class="error"></div>
+      <div id="resume-panel" class="resume-panel hidden">
+        <p id="resume-hint" class="help-hint"></p>
+        <div class="resume-actions">
+          <button type="button" id="resume-current-btn" class="inline-btn primary">Resume with selected models</button>
+          <button type="button" id="resume-local-btn" class="inline-btn">Resume local-only</button>
+        </div>
+        <p class="help-hint">Change the preset/model selectors on the left before resuming to continue with different routes.</p>
+      </div>
+
+      <div id="fused-signal" class="hidden"></div>
+      <button type="button" id="execute-btn" class="hidden execute-btn" title="Submit a simulated paper trade from the fused signal">Paper Execute</button>
+      <p id="execute-hint" class="help-hint hidden">Simulated order only&mdash;uses fused signal from this completed run.</p>
+
+      <div class="section-head">
+        <h3>Agent Progress</h3>
+        <p class="help-hint">Each agent runs in sequence; chips turn green when their report is ready.</p>
+      </div>
+      <ul id="agent-list" class="agents"></ul>
+
+      <div class="section-head">
+        <h3>Reports</h3>
+        <p class="help-hint">Switch tabs to read each agent&rsquo;s output as it completes.</p>
+      </div>
+      <div id="report-tabs" class="tabs"></div>
+      <div id="structured-panel" class="structured-panel hidden"></div>
+      <div id="bull-bear-panel" class="structured-panel hidden"></div>
+      <article id="report-body" class="report">
+        <p class="note">Reports appear as each agent completes.</p>
+      </article>
+    </div>
+  </section>
+</main>
+
+<main id="firm-view" class="hidden">
+  <section class="panel firm-panel">
+    <details class="guide-box">
+      <summary>Quick guide</summary>
+      <ul>
+        <li><b>Regime</b> sets risk posture; sync positions, then screen the universe.</li>
+        <li><b>Run Screen</b> previews passes; <b>Screen &amp; Queue</b> auto-starts analyses.</li>
+        <li>Fused signals and paper orders need a completed Research run selected.</li>
+      </ul>
+    </details>
+
+    <div class="firm-header">
+      <h2>Firm Dashboard</h2>
+      <span id="firm-mode-badge" class="badge" title="Paper = simulated trades, no real broker">paper</span>
+    </div>
+    <p class="help-hint">Operational view: positions, screening, auto-runs, fusion, and paper execution.</p>
+
+    <div id="regime-banner" class="regime-banner note">Loading regime&hellip;</div>
+    <p class="help-hint">Market regime (bull/bear/choppy) influences fusion gates and position sizing.</p>
+
+    <details id="firm-settings-panel" class="firm-settings">
+      <summary title="Screener, fusion, universe, scheduler, and risk limits">Firm Settings</summary>
+      <p class="help-hint">Tune thresholds and automation; save applies to future screens and fusion.</p>
+      <div id="firm-settings-status" class="note"></div>
+      <div id="firm-settings-readonly" class="settings-readonly"></div>
+      <div id="firm-settings-form" class="settings-form"></div>
+      <div id="firm-watchlist-editor" class="settings-watchlist"></div>
+      <div class="settings-actions">
+        <button type="button" id="firm-settings-save" class="inline-btn primary" title="Write changes to user settings file">Save Settings</button>
+        <button type="button" id="firm-settings-reset" class="inline-btn" title="Restore built-in defaults">Reset to Defaults</button>
+      </div>
+      <div id="firm-settings-error" class="error"></div>
+    </details>
+
+    <div class="firm-grid">
+      <div class="firm-card">
+        <div class="section-head">
+          <h3>Positions</h3>
+          <p class="help-hint">Current paper holdings; Sync refreshes from the broker simulator.</p>
+        </div>
+        <button type="button" id="firm-sync-btn" class="inline-btn" title="Pull latest positions from paper broker">Sync</button>
+        <div id="firm-positions" class="firm-table-wrap note">No positions synced.</div>
+      </div>
+      <div class="firm-card">
+        <div class="section-head">
+          <h3>Screener</h3>
+          <p class="help-hint">Quant filters on the configured universe; queue passes for agent analysis.</p>
+        </div>
+        <div class="firm-btn-row">
+          <button type="button" id="firm-screen-btn" class="inline-btn" title="Run filters and show pass/fail table only">Run Screen</button>
+          <button type="button" id="firm-queue-screen-btn" class="inline-btn primary" title="Screen and auto-queue Research runs for passing tickers">Screen &amp; Queue</button>
+        </div>
+        <p class="help-hint"><b>Run Screen</b> = preview only. <b>Screen &amp; Queue</b> = preview + enqueue analyses.</p>
+        <div id="firm-queue-models" class="queue-models note">Screen &amp; Queue model routes loading&hellip;</div>
+        <div id="firm-screen-results" class="firm-table-wrap note">Press Run Screen or Screen &amp; Queue.</div>
+        <div id="firm-watchlist-summary" class="note"></div>
+      </div>
+      <div class="firm-card">
+        <div class="section-head">
+          <h3>Auto-Queue Runs</h3>
+          <p class="help-hint">Analyses started by Screen &amp; Queue or the scheduler today.</p>
+        </div>
+        <div id="firm-auto-runs" class="firm-table-wrap note">No auto-queued runs today.</div>
+      </div>
+    </div>
+
+    <div class="section-head">
+      <h3>Hybrid Backtest</h3>
+      <p class="help-hint">Cheap quant + LLM-proxy replay (not full agent backtest). Uses yfinance only.</p>
+    </div>
+    <div class="firm-card firm-backtest">
+      <div class="backtest-controls">
+        <label>Start <input type="date" id="firm-backtest-start" /></label>
+        <label>End <input type="date" id="firm-backtest-end" /></label>
+        <label>Mode
+          <select id="firm-backtest-mode">
+            <option value="compare">Compare all</option>
+            <option value="fused">Fused only</option>
+            <option value="quant_only">Quant only</option>
+            <option value="llm_only">LLM proxy only</option>
+          </select>
+        </label>
+        <label>LLM proxy
+          <select id="firm-backtest-llm-proxy">
+            <option value="momentum">Momentum (no lookahead)</option>
+            <option value="hindsight">Hindsight (validation only)</option>
+          </select>
+        </label>
+        <button type="button" id="firm-backtest-run" class="inline-btn primary">Run Backtest</button>
+      </div>
+      <div id="firm-backtest-status" class="note">Select a date range and run.</div>
+      <div id="firm-backtest-warning" class="warning hidden"></div>
+      <div id="firm-backtest-results" class="firm-table-wrap note"></div>
+    </div>
+
+    <div class="section-head">
+      <h3>Fused Signals</h3>
+      <p class="help-hint">History of fusion outcomes linking agent decisions to firm risk rules.</p>
+    </div>
+    <div id="firm-signals" class="firm-table-wrap note">No signals yet.</div>
+
+    <div class="section-head">
+      <h3>Run Fusion (selected)</h3>
+      <p class="help-hint">Select a completed run in Research History to fuse its decision with firm rules.</p>
+    </div>
+    <div id="firm-fusion-panel" class="firm-fusion note">Select a completed run from Research.</div>
+    <button type="button" id="firm-execute-btn" class="execute-btn hidden" disabled title="Paper trade when fusion passes all gates">
+      Execute Paper Order
+    </button>
+    <p class="help-hint">Enabled when fusion passes; submits a simulated order to the paper broker.</p>
+    <div id="firm-execute-result" class="note"></div>
+  </section>
+</main>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

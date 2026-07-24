@@ -509,6 +509,41 @@ def _prepare_verify_routes(
     return verify_inputs, launch_notes, launch_attempted
 
 
+def _verify_and_apply_models(
+    req: LlmVerifyRequest | AnalyzeRequest | QueueScreenRequest,
+    config: dict,
+) -> tuple[dict[str, dict[str, str | None]], dict[str, dict], list[str]]:
+    """Server-side LLM verify; apply resolved models to routes."""
+    routes = _request_llm_routes(req, config)
+    verify_inputs, launch_notes, _ = _prepare_verify_routes(req)
+    result = verify_routes(verify_inputs)
+    notes = launch_notes + list(result.get("notes") or [])
+    if not result.get("ok"):
+        raise HTTPException(400, "\n".join(notes) or "LLM verify failed")
+
+    model_resolution: dict[str, dict] = {}
+    for route_input, route_result in zip(verify_inputs, result.get("routes") or []):
+        role = route_result.get("role") or route_input.get("role")
+        if not role:
+            continue
+        resolved = route_result.get("resolved")
+        model_resolution[role] = {
+            "requested": route_result.get("requested"),
+            "resolved": resolved,
+            "remapped": route_result.get("remapped"),
+            "reason": route_result.get("reason"),
+            "smoke_ok": route_result.get("smoke_ok"),
+            "catalog_fingerprint": route_result.get("catalog_fingerprint"),
+        }
+        if role not in routes:
+            continue
+        if route_input.get("backend_url"):
+            routes[role]["backend_url"] = route_input["backend_url"]
+        if resolved:
+            routes[role]["model"] = resolved
+    return routes, model_resolution, notes
+
+
 def _request_llm_routes(
     req: LlmVerifyRequest | AnalyzeRequest | QueueScreenRequest,
     config: dict,
@@ -647,12 +682,14 @@ def start_analysis(req: AnalyzeRequest):
     from tradingagents.llm_clients.api_key_env import get_api_key_env
     from tradingagents.llm_clients.openrouter_tools import validate_openrouter_model_for_agents
 
-    routes = _request_llm_routes(req, DEFAULT_CONFIG)
-    _validate_openai_compatible_backend_urls(routes)
-    warnings: list[str] = []
+    _validate_openai_compatible_backend_urls(_request_llm_routes(req, DEFAULT_CONFIG))
+    routes, model_resolution, verify_notes = _verify_and_apply_models(req, DEFAULT_CONFIG)
+    warnings: list[str] = list(verify_notes)
+    quick_model = routes["quick"].get("model") or req.quick_model
+    deep_model = routes["deep"].get("model") or req.deep_model
     quick_openrouter_free = (
         (routes["quick"].get("provider") or "").lower() == "openrouter"
-        and _is_openrouter_free_model(routes["quick"].get("model"))
+        and _is_openrouter_free_model(quick_model)
     )
     for route in routes.values():
         if (route.get("provider") or "").lower() != "openrouter":
@@ -689,9 +726,10 @@ def start_analysis(req: AnalyzeRequest):
             "quick_backend_url": req.quick_backend_url,
             "deep_provider": req.deep_provider,
             "deep_backend_url": req.deep_backend_url,
-            "deep_model": req.deep_model,
-            "quick_model": req.quick_model,
+            "deep_model": deep_model,
+            "quick_model": quick_model,
             "model_preset": req.model_preset,
+            "model_resolution": model_resolution,
             "llm_routes": routes,
             "route_summary": _format_route_summary(routes),
             "max_debate_rounds": req.max_debate_rounds,
@@ -921,17 +959,19 @@ def firm_queue_screen(
     if invalid:
         raise HTTPException(400, f"unknown analysts: {invalid}")
 
-    routes = _request_llm_routes(body, DEFAULT_CONFIG)
-    _validate_openai_compatible_backend_urls(routes)
+    _validate_openai_compatible_backend_urls(_request_llm_routes(body, DEFAULT_CONFIG))
+    routes, model_resolution, verify_notes = _verify_and_apply_models(body, DEFAULT_CONFIG)
     warning, requires_override = _openrouter_free_guardrail(
         analysts or DEFAULT_ANALYSTS,
         routes,
     )
     if warning and requires_override and not body.openrouter_free_override:
         raise HTTPException(400, warning)
+    quick_model = routes["quick"].get("model") or body.quick_model
+    deep_model = routes["deep"].get("model") or body.deep_model
     quick_openrouter_free = (
         (routes["quick"].get("provider") or "").lower() == "openrouter"
-        and _is_openrouter_free_model(routes["quick"].get("model"))
+        and _is_openrouter_free_model(quick_model)
     )
     run_params = {
         "provider": body.provider,
@@ -940,8 +980,9 @@ def firm_queue_screen(
         "quick_backend_url": body.quick_backend_url,
         "deep_provider": body.deep_provider,
         "deep_backend_url": body.deep_backend_url,
-        "deep_model": body.deep_model,
-        "quick_model": body.quick_model,
+        "deep_model": deep_model,
+        "quick_model": quick_model,
+        "model_resolution": model_resolution,
         "llm_routes": routes,
         "route_summary": _format_route_summary(routes),
         "model_preset": body.model_preset,
@@ -966,6 +1007,8 @@ def firm_queue_screen(
         raise HTTPException(503, str(exc)) from exc
     if warning:
         result["warning"] = warning
+    if verify_notes:
+        result["verify_notes"] = verify_notes
     return result
 
 
