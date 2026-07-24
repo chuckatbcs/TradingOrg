@@ -620,6 +620,7 @@ class RunManager:
             "llm_routes": llm_routes,
             "route_summary": route_summary,
             "model_preset": params.get("model_preset"),
+            "model_resolution": params.get("model_resolution"),
             "max_context_tokens": params.get("max_context_tokens"),
             "status": "queued",
             "source": params.get("source", "manual"),
@@ -711,6 +712,7 @@ class RunManager:
             "llm_routes": child_routes,
             "route_summary": params["route_summary"],
             "model_preset": params.get("model_preset"),
+            "model_resolution": params.get("model_resolution") or parent.get("model_resolution"),
             "max_context_tokens": params.get("max_context_tokens"),
             "status": "queued",
             "source": "resume",
@@ -775,6 +777,7 @@ class RunManager:
             "deep_model": run.get("deep_model") or None,
             "quick_model": run.get("quick_model") or None,
             "model_preset": run.get("model_preset"),
+            "model_resolution": run.get("model_resolution"),
             "max_context_tokens": run.get("max_context_tokens"),
             "source": run.get("source", "manual"),
         }

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from unittest import mock
 from unittest.mock import MagicMock
 
 import pytest
@@ -67,6 +68,10 @@ def test_queue_screener_finalists_dedups_and_queues(monkeypatch):
         lambda symbols, top_n=None, pass_only=True: [Result("AAA"), Result("BBB"), Result("CCC")][: (top_n or 3)],
     )
     monkeypatch.setattr("firm.ops.screen_queue.notify", MagicMock())
+    monkeypatch.setattr(
+        "webapp.llm_route_prep.build_default_run_params",
+        lambda config=None: {},
+    )
 
     manager = FakeRunManager(
         [
@@ -151,6 +156,78 @@ def test_queue_screener_finalists_passes_model_route_params(monkeypatch):
 
 
 @pytest.mark.unit
+def test_queue_screener_applies_default_model_verify(monkeypatch):
+    from copy import deepcopy
+
+    from tradingagents.default_config import DEFAULT_CONFIG
+
+    test_config = deepcopy(DEFAULT_CONFIG)
+    test_config.update(
+        {
+            "llm_provider": "openai",
+            "quick_think_llm": "gpt-5.4-mini",
+            "deep_think_llm": "gpt-5.5",
+            "quick_provider": None,
+            "deep_provider": None,
+            "backend_url": None,
+            "quick_backend_url": None,
+            "deep_backend_url": None,
+        }
+    )
+    monkeypatch.setattr("tradingagents.default_config.DEFAULT_CONFIG", test_config)
+
+    monkeypatch.setattr(
+        "firm.ops.screen_queue.resolve_screening_universe",
+        lambda: (["AAA"], {"mode": "watchlist", "count": 1}),
+    )
+
+    class Result:
+        ticker = "AAA"
+        score = 80.0
+        passed = True
+        filters = {}
+        metrics = {}
+        blockers = []
+
+    monkeypatch.setattr(
+        "firm.ops.screen_queue.screen_universe",
+        lambda symbols, top_n=None, pass_only=True: [Result()],
+    )
+    monkeypatch.setattr("firm.ops.screen_queue.notify", MagicMock())
+
+    fake_probe = {
+        "reachable": True,
+        "models": ["gpt-5.4-mini", "gpt-5.5"],
+        "error": None,
+    }
+    manager = FakeRunManager()
+    with (
+        mock.patch("webapp.llm_route_prep.probe_llm_endpoint", return_value=fake_probe),
+        mock.patch(
+            "webapp.llm_route_prep.ensure_local_llm",
+            return_value=mock.Mock(attempted=False, reached=True, error=None, detail=None),
+        ),
+        mock.patch(
+            "webapp.llm_verify.smoke_tool_call",
+            return_value={"ok": True, "error": None},
+        ),
+    ):
+        result = queue_screener_finalists(
+            manager,
+            top_n=1,
+            trade_date="2026-07-02",
+            notify_discord=False,
+            source="premarket_screen",
+        )
+
+    assert result["count"] == 1
+    assert manager.started[0]["quick_model"] == "gpt-5.4-mini"
+    assert manager.started[0]["deep_model"] == "gpt-5.5"
+    assert manager.started[0]["model_resolution"]["quick"]["resolved"] == "gpt-5.4-mini"
+    assert result["model_resolution"]["deep"]["resolved"] == "gpt-5.5"
+
+
+@pytest.mark.unit
 def test_queue_screen_api_passes_selected_model_routes(monkeypatch):
     from contextlib import contextmanager
     from unittest import mock
@@ -160,8 +237,8 @@ def test_queue_screen_api_passes_selected_model_routes(monkeypatch):
     @contextmanager
     def verify_ok(models):
         fake_probe = {"reachable": True, "models": models, "error": None}
-        with mock.patch("webapp.server.probe_llm_endpoint", return_value=fake_probe), \
-             mock.patch("webapp.server.ensure_local_llm") as launch, \
+        with mock.patch("webapp.llm_route_prep.probe_llm_endpoint", return_value=fake_probe), \
+             mock.patch("webapp.llm_route_prep.ensure_local_llm") as launch, \
              mock.patch("webapp.llm_verify.smoke_tool_call", return_value={"ok": True, "error": None}):
             launch.return_value = mock.Mock(attempted=False, reached=True, error=None, detail=None)
             yield
@@ -248,6 +325,10 @@ def test_queue_screener_skips_all_when_already_active(monkeypatch):
     )
     mock_notify = MagicMock()
     monkeypatch.setattr("firm.ops.screen_queue.notify", mock_notify)
+    monkeypatch.setattr(
+        "webapp.llm_route_prep.build_default_run_params",
+        lambda config=None: {},
+    )
 
     manager = FakeRunManager(
         [

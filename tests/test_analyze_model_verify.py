@@ -14,8 +14,8 @@ def test_analyze_resolves_missing_model(monkeypatch):
         "models": ["meta-llama/llama-3.3-70b-instruct:free"],
         "error": None,
     }
-    with mock.patch("webapp.server.probe_llm_endpoint", return_value=fake_probe), \
-         mock.patch("webapp.server.ensure_local_llm") as launch, \
+    with mock.patch("webapp.llm_route_prep.probe_llm_endpoint", return_value=fake_probe), \
+         mock.patch("webapp.llm_route_prep.ensure_local_llm") as launch, \
          mock.patch("webapp.llm_verify.smoke_tool_call", return_value={"ok": True, "error": None}), \
          mock.patch.object(manager, "start_run", return_value={"id": "abc", "status": "queued"}) as start:
         launch.return_value = mock.Mock(attempted=False, reached=True, error=None, detail=None)
@@ -37,6 +37,32 @@ def test_analyze_resolves_missing_model(monkeypatch):
     assert params["model_resolution"]["quick"]["remapped"] is True
 
 
+def test_start_run_persists_model_resolution(tmp_path):
+    from webapp.runs import RunManager
+
+    manager = RunManager(tmp_path)
+    resolution = {
+        "quick": {
+            "requested": "meta-llama/missing:free",
+            "resolved": "meta-llama/llama-3.3-70b-instruct:free",
+            "remapped": True,
+        }
+    }
+    with mock.patch.object(manager, "_execute"):
+        record = manager.start_run(
+            {
+                "ticker": "NVDA",
+                "trade_date": "2026-07-02",
+                "analysts": ["market"],
+                "model_resolution": resolution,
+            }
+        )
+    assert record["model_resolution"] == resolution
+    stored = manager.get_run(record["id"])
+    assert stored is not None
+    assert stored["model_resolution"] == resolution
+
+
 def test_analyze_rejects_failed_verify(monkeypatch):
     from webapp.server import app, manager
 
@@ -46,8 +72,8 @@ def test_analyze_rejects_failed_verify(monkeypatch):
         "models": ["meta-llama/llama-3.3-70b-instruct:free"],
         "error": None,
     }
-    with mock.patch("webapp.server.probe_llm_endpoint", return_value=fake_probe), \
-         mock.patch("webapp.server.ensure_local_llm") as launch, \
+    with mock.patch("webapp.llm_route_prep.probe_llm_endpoint", return_value=fake_probe), \
+         mock.patch("webapp.llm_route_prep.ensure_local_llm") as launch, \
          mock.patch("webapp.llm_verify.smoke_tool_call", return_value={"ok": False, "error": "no tools"}), \
          mock.patch.object(manager, "start_run") as start:
         launch.return_value = mock.Mock(attempted=False, reached=True, error=None, detail=None)

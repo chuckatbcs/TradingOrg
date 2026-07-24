@@ -24,11 +24,19 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from webapp.llm_endpoint import probe_llm_endpoint
-from webapp.llm_launch import ensure_local_llm
+from webapp.llm_route_prep import (
+    LlmVerifyError,
+    prepare_verify_routes as _prepare_verify_routes,
+    request_llm_routes as _request_llm_routes,
+    resolution_payload as _resolution_payload,
+    resolve_role_backend_url as _resolve_role_backend_url,
+    resolve_role_provider as _resolve_role_provider,
+    verify_and_apply_models as _verify_and_apply_models_core,
+)
 from webapp.llm_verify import verify_routes
 from webapp.market_dates import latest_sensible_date, validate_market_date
 from webapp.model_presets import MODEL_PRESETS
-from webapp.model_resolution import resolve_model, route_signature
+from webapp.model_resolution import route_signature
 from webapp.runs import ANALYST_AGENTS, RunManager, _format_route_summary
 
 logger = logging.getLogger(__name__)
@@ -290,47 +298,6 @@ def _is_hybrid_probe(
     )
 
 
-def _resolve_role_provider(
-    role: str,
-    provider: str | None,
-    role_provider: str | None,
-    config: dict,
-) -> str | None:
-    if role_provider:
-        return role_provider
-    configured = config.get(f"{role}_provider")
-    if configured:
-        return configured
-    if provider and provider.lower() != "hybrid":
-        return provider
-    return config.get("llm_provider")
-
-
-def _resolve_role_backend_url(
-    role: str,
-    *,
-    backend_url: str | None,
-    provider: str | None,
-    role_provider: str | None,
-    role_backend_url: str | None,
-    config: dict,
-) -> str | None:
-    if role_backend_url is not None:
-        return role_backend_url or None
-    if role_provider:
-        return None
-    configured = config.get(f"{role}_backend_url")
-    if configured:
-        return configured
-    if backend_url is not None:
-        return backend_url or None
-    if provider and provider.lower() != "hybrid":
-        return None
-    if not config.get(f"{role}_provider"):
-        return config.get("backend_url")
-    return None
-
-
 def _hybrid_probe_payload(
     probe,
     config: dict,
@@ -403,22 +370,6 @@ def _openrouter_free_warning(analysts: list[str], model_ids: tuple[str | None, s
     )
 
 
-def _resolution_payload(
-    requested: str | None,
-    catalog: list[str],
-    *,
-    provider: str | None,
-) -> dict:
-    resolution = resolve_model(requested, catalog, provider=provider)
-    return {
-        "requested": resolution.requested,
-        "resolved": resolution.resolved,
-        "remapped": resolution.remapped,
-        "reason": resolution.reason,
-        "catalog_fingerprint": resolution.catalog_fingerprint,
-    }
-
-
 def _enrich_model_resolutions(
     payload: dict,
     *,
@@ -467,115 +418,14 @@ def _enrich_model_resolutions(
         payload["resolved"] = resolved
 
 
-def _prepare_verify_routes(
-    req: LlmVerifyRequest | AnalyzeRequest | QueueScreenRequest,
-) -> tuple[list[dict], list[str], bool]:
-    from tradingagents.default_config import DEFAULT_CONFIG
-
-    routes = _request_llm_routes(req, DEFAULT_CONFIG)
-    launch_notes: list[str] = []
-    launch_attempted = False
-    verify_inputs: list[dict] = []
-
-    for role in ("quick", "deep"):
-        route = routes[role]
-        provider = route.get("provider")
-        backend_url = route.get("backend_url")
-        model = route.get("model")
-
-        launch = ensure_local_llm(provider, backend_url, model=model)
-        if launch.attempted:
-            launch_attempted = True
-        if launch.detail:
-            launch_notes.append(f"{role}: {launch.detail}")
-        if launch.error and not launch.reached:
-            launch_notes.append(f"{role}: launch failed: {launch.error}")
-
-        probe = probe_llm_endpoint(provider, backend_url, timeout=5)
-        catalog = list(probe.get("models") or [])
-        if probe.get("backend_url"):
-            backend_url = probe.get("backend_url")
-
-        verify_inputs.append(
-            {
-                "role": role,
-                "provider": provider,
-                "backend_url": backend_url,
-                "requested_model": model,
-                "catalog": catalog,
-            }
-        )
-
-    return verify_inputs, launch_notes, launch_attempted
-
-
 def _verify_and_apply_models(
     req: LlmVerifyRequest | AnalyzeRequest | QueueScreenRequest,
     config: dict,
 ) -> tuple[dict[str, dict[str, str | None]], dict[str, dict], list[str]]:
-    """Server-side LLM verify; apply resolved models to routes."""
-    routes = _request_llm_routes(req, config)
-    verify_inputs, launch_notes, _ = _prepare_verify_routes(req)
-    result = verify_routes(verify_inputs)
-    notes = launch_notes + list(result.get("notes") or [])
-    if not result.get("ok"):
-        raise HTTPException(400, "\n".join(notes) or "LLM verify failed")
-
-    model_resolution: dict[str, dict] = {}
-    for route_input, route_result in zip(verify_inputs, result.get("routes") or []):
-        role = route_result.get("role") or route_input.get("role")
-        if not role:
-            continue
-        resolved = route_result.get("resolved")
-        model_resolution[role] = {
-            "requested": route_result.get("requested"),
-            "resolved": resolved,
-            "remapped": route_result.get("remapped"),
-            "reason": route_result.get("reason"),
-            "smoke_ok": route_result.get("smoke_ok"),
-            "catalog_fingerprint": route_result.get("catalog_fingerprint"),
-        }
-        if role not in routes:
-            continue
-        if route_input.get("backend_url"):
-            routes[role]["backend_url"] = route_input["backend_url"]
-        if resolved:
-            routes[role]["model"] = resolved
-    return routes, model_resolution, notes
-
-
-def _request_llm_routes(
-    req: LlmVerifyRequest | AnalyzeRequest | QueueScreenRequest,
-    config: dict,
-) -> dict[str, dict[str, str | None]]:
-    """Resolve effective quick/deep routes from a web request."""
-    provider = (req.provider or config.get("llm_provider") or "").lower()
-    return {
-        "quick": {
-            "provider": _resolve_role_provider("quick", provider, req.quick_provider, config),
-            "backend_url": _resolve_role_backend_url(
-                "quick",
-                backend_url=req.backend_url,
-                provider=provider,
-                role_provider=req.quick_provider,
-                role_backend_url=req.quick_backend_url,
-                config=config,
-            ),
-            "model": req.quick_model or config.get("quick_think_llm"),
-        },
-        "deep": {
-            "provider": _resolve_role_provider("deep", provider, req.deep_provider, config),
-            "backend_url": _resolve_role_backend_url(
-                "deep",
-                backend_url=req.backend_url,
-                provider=provider,
-                role_provider=req.deep_provider,
-                role_backend_url=req.deep_backend_url,
-                config=config,
-            ),
-            "model": req.deep_model or config.get("deep_think_llm"),
-        },
-    }
+    try:
+        return _verify_and_apply_models_core(req, config)
+    except LlmVerifyError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 def _validate_openai_compatible_backend_urls(
