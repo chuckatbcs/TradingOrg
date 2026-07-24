@@ -14,7 +14,16 @@ def test_detects_model_not_found():
     assert is_model_route_error(RuntimeError("model 'x' not found"))
     assert is_model_route_error(RuntimeError("No endpoints found that support tool use"))
     assert is_model_route_error(ConnectionError("Connection refused"))
+    assert is_model_route_error(RuntimeError("model_not_found: openrouter/foo"))
+    assert is_model_route_error(RuntimeError("model foo does not exist on provider"))
     assert not is_model_route_error(ValueError("invalid ticker"))
+
+
+@pytest.mark.unit
+def test_is_model_route_error_rejects_unrelated_failures():
+    assert not is_model_route_error(ValueError("invalid ticker 404 symbol"))
+    assert not is_model_route_error(ValueError("resource does not exist"))
+    assert not is_model_route_error(RuntimeError("tool use policy violation"))
 
 
 @pytest.mark.unit

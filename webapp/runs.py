@@ -114,17 +114,19 @@ def is_model_route_error(exc: BaseException) -> bool:
     text = str(exc).lower()
     if "model" in text and "not found" in text:
         return True
-    needles = (
-        "model not found",
-        "does not exist",
-        "no endpoints found that support tool use",
-        "tool use",
-        "connection refused",
-        "failed to establish a new connection",
-        "404",
-        "model_not_found",
-    )
-    return any(n in text for n in needles)
+    if "model_not_found" in text:
+        return True
+    if "no endpoints found that support tool use" in text:
+        return True
+    if "connection refused" in text or "failed to establish a new connection" in text:
+        return True
+    if "model" in text and "does not exist" in text:
+        return True
+    if "endpoint" in text and ("not found" in text or "does not exist" in text):
+        return True
+    if "model" in text and "404" in text:
+        return True
+    return False
 
 
 def role_for_agent(agent: str | None) -> str | None:
