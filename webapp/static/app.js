@@ -557,13 +557,21 @@ async function verifyModels({ silent = false } = {}) {
       }),
     });
     for (const route of res.routes || []) {
-      if (route.role === "quick" && route.resolved) {
-        selectOption($("quick-model"), route.resolved);
+      if (route.role === "quick") {
+        if (route.resolved) selectOption($("quick-model"), route.resolved);
+        if (route.backend_url) {
+          activeQuickBackendUrl = route.backend_url;
+          if ((activeLlmProvider || "").toLowerCase() !== "hybrid") {
+            activeBackendUrl = route.backend_url;
+          }
+        }
       }
-      if (route.role === "deep" && route.resolved) {
-        selectOption($("deep-model"), route.resolved);
+      if (route.role === "deep") {
+        if (route.resolved) selectOption($("deep-model"), route.resolved);
+        if (route.backend_url) activeDeepBackendUrl = route.backend_url;
       }
     }
+    syncLocalBackendField();
     lastVerify = { signature: res.route_signature || null, ok: Boolean(res.ok) };
     const notes = (res.notes || []).join(" ");
     if (statusEl) {
@@ -649,8 +657,6 @@ async function init() {
     const badge = $("provider-badge");
     if (badge) badge.textContent = "backend unreachable";
   }
-  await checkLlmHealth(cfg);
-  await loadModels(cfg);
   const defaultPreset =
     modelPresets.find(
       (p) =>
@@ -664,6 +670,9 @@ async function init() {
   if (defaultPreset) applyModelPreset(defaultPreset, cfg);
   syncLocalBackendField();
   updateLocalBackendWarning();
+  await checkLlmHealth(cfg);
+  // loadModels ends with verifyModels — starts host-agent recovery on its own.
+  await loadModels(cfg);
   updateVerifyGating();
   updateQueueModelSummary();
   initBacktestDates(cfg);
@@ -734,8 +743,8 @@ function formatRunError(error) {
   ) {
     return (
       error +
-      "\n\nLocal LLM: ensure LM Studio is running with a model loaded and reachable from Docker " +
-      "(default: host.docker.internal:1234)."
+      "\n\nLocal LLM: the app should auto-start LM Studio via the host agent " +
+      "(scripts/docker-start.ps1). If this persists, check that the host agent is on port 18787."
     );
   }
   return error;
@@ -913,9 +922,8 @@ async function loadModels(cfg) {
     fillModelSelect(quickSel, [], quickDefault);
     if (note) note.textContent = `Could not load models: ${e.message}`;
   }
-  if (llmHealthDown || remapped) {
-    await verifyModels({ silent: true });
-  }
+  // Always verify (and auto-launch/remap) after catalog load — do not wait for a click.
+  await verifyModels({ silent: true });
 }
 
 // Nav tabs first so a later binding error cannot block view switching.

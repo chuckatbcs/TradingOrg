@@ -12,9 +12,16 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_DEEP_THINK_LLM":       "deep_think_llm",
     "TRADINGAGENTS_QUICK_THINK_LLM":      "quick_think_llm",
     "TRADINGAGENTS_LLM_BACKEND_URL":      "backend_url",
+    "TRADINGAGENTS_DEEP_LLM_PROVIDER":    "deep_provider",
+    "TRADINGAGENTS_DEEP_LLM_BACKEND_URL": "deep_backend_url",
+    "TRADINGAGENTS_QUICK_LLM_PROVIDER":   "quick_provider",
+    "TRADINGAGENTS_QUICK_LLM_BACKEND_URL": "quick_backend_url",
     "TRADINGAGENTS_OUTPUT_LANGUAGE":      "output_language",
     "TRADINGAGENTS_MAX_DEBATE_ROUNDS":    "max_debate_rounds",
     "TRADINGAGENTS_MAX_RISK_ROUNDS":      "max_risk_discuss_rounds",
+    "TRADINGAGENTS_CONTEXT_WINDOW":       "max_context_tokens",
+    "TRADINGAGENTS_MAX_CONTEXT_TOKENS":   "max_context_tokens",
+    "TRADINGAGENTS_FUNDAMENTALS_MAX_TOOL_CALLS": "fundamentals_max_tool_calls",
     "TRADINGAGENTS_CHECKPOINT_ENABLED":   "checkpoint_enabled",
     "TRADINGAGENTS_BENCHMARK_TICKER":     "benchmark_ticker",
     "TRADINGAGENTS_TEMPERATURE":          "temperature",
@@ -80,6 +87,12 @@ DEFAULT_CONFIG = _apply_env_overrides({
     "llm_provider": "openai",
     "deep_think_llm": "gpt-5.5",
     "quick_think_llm": "gpt-5.4-mini",
+    # Optional per-role provider routing. When unset, both roles inherit
+    # llm_provider/backend_url to preserve the single-provider behavior.
+    "deep_provider": None,
+    "deep_backend_url": None,
+    "quick_provider": None,
+    "quick_backend_url": None,
     # When None, each provider's client falls back to its own default endpoint
     # (api.openai.com for OpenAI, generativelanguage.googleapis.com for Gemini, ...).
     # The CLI overrides this per provider when the user picks one. Keeping a
@@ -105,6 +118,19 @@ DEFAULT_CONFIG = _apply_env_overrides({
     "max_debate_rounds": 1,
     "max_risk_discuss_rounds": 1,
     "max_recur_limit": 100,
+    # Prompt guardrail for local/context-limited servers. Set this to the
+    # model context loaded in LM Studio (8192, 16384, 32768, ...).
+    "max_context_tokens": 8192,
+    "fundamentals_max_tool_calls": 4,
+    "analyst_tool_call_limits": {
+        "market": 8,
+        "social": 4,
+        "news": 8,
+        "fundamentals": 4,
+    },
+    # Max characters returned from any data tool into LangGraph messages. The
+    # in-run cache keeps the compact result for duplicate tool+argument calls.
+    "tool_output_max_chars": 1600,
     # News / data fetching parameters
     # Increase for longer lookback strategies or to broaden macro coverage;
     # decrease to reduce token usage in agent prompts.

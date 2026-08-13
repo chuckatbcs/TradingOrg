@@ -34,11 +34,18 @@ from tradingagents.agents.utils.agent_utils import (
     get_instrument_context_from_state,
     get_language_instruction,
     get_news,
+    get_structured_report_instruction,
+)
+from tradingagents.agents.utils.context_budget import (
+    max_context_tokens_from_config,
+    short_section_budget,
+    truncate_text,
 )
 from tradingagents.agents.utils.structured import (
     bind_structured,
     invoke_structured_or_freetext,
 )
+from tradingagents.agents.utils.tool_efficiency import ToolEfficiencyTracker
 from tradingagents.dataflows.reddit import fetch_reddit_posts
 from tradingagents.dataflows.stocktwits import fetch_stocktwits_messages
 
@@ -47,7 +54,12 @@ def _seven_days_back(trade_date: str) -> str:
     return (datetime.strptime(trade_date, "%Y-%m-%d") - timedelta(days=7)).strftime("%Y-%m-%d")
 
 
-def create_sentiment_analyst(llm):
+def create_sentiment_analyst(
+    llm,
+    *,
+    tool_tracker: ToolEfficiencyTracker | None = None,
+    compact_tool_chars: int | None = None,
+):
     """Create a sentiment analyst node for the trading graph.
 
     Pre-fetches news + StockTwits + Reddit data, injects them into the
@@ -62,13 +74,34 @@ def create_sentiment_analyst(llm):
         end_date = state["trade_date"]
         start_date = _seven_days_back(end_date)
         instrument_context = get_instrument_context_from_state(state)
+        section_budget = short_section_budget(max_context_tokens_from_config())
 
         # Pre-fetch all three sources. Each fetcher degrades gracefully and
         # returns a string (no exceptions surface from here), so the LLM
         # always sees something — either real data or a clear placeholder.
-        news_block = get_news.func(ticker, start_date, end_date)
-        stocktwits_block = fetch_stocktwits_messages(ticker, limit=30)
-        reddit_block = fetch_reddit_posts(ticker)
+        if tool_tracker is not None:
+            news_block = tool_tracker.call(
+                get_news.name,
+                {"ticker": ticker, "start_date": start_date, "end_date": end_date},
+                lambda: get_news.func(ticker, start_date, end_date),
+                max_chars=compact_tool_chars or section_budget,
+            )
+        else:
+            news_block = truncate_text(
+                get_news.func(ticker, start_date, end_date),
+                section_budget,
+                "sentiment news",
+            )
+        stocktwits_block = truncate_text(
+            fetch_stocktwits_messages(ticker, limit=30),
+            section_budget,
+            "stocktwits messages",
+        )
+        reddit_block = truncate_text(
+            fetch_reddit_posts(ticker),
+            section_budget,
+            "reddit posts",
+        )
 
         system_message = _build_system_message(
             ticker=ticker,
@@ -128,7 +161,7 @@ def _build_system_message(
     reddit_block: str,
 ) -> str:
     """Assemble the sentiment-analyst system message with structured data blocks."""
-    return f"""You are a financial market sentiment analyst. Your task is to produce a comprehensive sentiment report for {ticker} covering the period from {start_date} to {end_date}, drawing on three complementary data sources that have already been collected for you.
+    return f"""You are a financial market sentiment analyst. Produce a concise sentiment report for {ticker} covering {start_date} to {end_date}, drawing only on the three pre-fetched data sources below.
 
 ## Data sources (pre-fetched, in this prompt)
 
@@ -178,7 +211,9 @@ Fill the following fields:
 - **overall_band**: Exactly one of Bullish / Mildly Bullish / Neutral / Mixed / Mildly Bearish / Bearish. Use Mixed when sources point in clearly different directions; Neutral only when all sources are genuinely silent.
 - **overall_score**: A number from 0 (maximally bearish) to 10 (maximally bullish); 5 is neutral. Keep it consistent with overall_band.
 - **confidence**: low / medium / high, based on data quality and sample size.
-- **narrative**: Full source-by-source breakdown, divergences, dominant narrative themes, catalysts and risks, and a markdown summary table of key sentiment signals (direction, source, supporting evidence).
+- **narrative**: Source-by-source breakdown, divergences, dominant themes, catalysts, risks, data gaps, and a compact markdown table of key sentiment signals (direction, source, supporting evidence). Never output only a rating/action.
+
+{get_structured_report_instruction()}
 
 {get_language_instruction()}"""
 

@@ -44,15 +44,24 @@ dev = [
 bedrock = [
     "langchain-aws>=1.5.0",
 ]
+# Web frontend (FastAPI backend + static browser UI): pip install ".[web]"
+web = [
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+]
+firm = [
+    "apscheduler>=3.10",
+]
 
 [project.scripts]
 tradingagents = "cli.main:app"
 
 [tool.setuptools.packages.find]
-include = ["tradingagents*", "cli*"]
+include = ["tradingagents*", "cli*", "webapp*", "firm*"]
 
 [tool.setuptools.package-data]
 cli = ["static/*"]
+webapp = ["static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

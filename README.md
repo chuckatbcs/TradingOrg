@@ -134,6 +134,19 @@ For local models with Ollama:
 docker compose --profile ollama run --rm tradingagents-ollama
 ```
 
+### Web Frontend
+
+A browser UI for configuring, running, and reviewing analyses lives in `webapp/`:
+```bash
+pip install ".[web]"
+uvicorn webapp.server:app --host 0.0.0.0 --port 8000
+```
+Or with Docker:
+```bash
+docker compose up -d web   # http://localhost:8000
+```
+It provides a run form (ticker, date, analysts, models), live agent-by-agent progress, rendered markdown reports per agent, the final decision, and persistent run history. Provider/model defaults come from `.env` (`TRADINGAGENTS_*`), and the model picker lists whatever your OpenAI-compatible endpoint (e.g. LM Studio) serves.
+
 ### Required APIs
 
 TradingAgents supports multiple LLM providers. Set the API key for your chosen provider:

@@ -14,6 +14,14 @@ from tradingagents.agents.schemas import PortfolioDecision, render_pm_decision
 from tradingagents.agents.utils.agent_utils import (
     get_instrument_context_from_state,
     get_language_instruction,
+    get_structured_report_instruction,
+)
+from tradingagents.agents.utils.context_budget import (
+    history_section_budget,
+    max_context_tokens_from_config,
+    report_section_budget,
+    short_section_budget,
+    truncate_text,
 )
 from tradingagents.agents.utils.structured import (
     bind_structured,
@@ -26,13 +34,29 @@ def create_portfolio_manager(llm):
 
     def portfolio_manager_node(state) -> dict:
         instrument_context = get_instrument_context_from_state(state)
+        max_context_tokens = max_context_tokens_from_config()
+        report_budget = report_section_budget(max_context_tokens)
+        history_budget = history_section_budget(max_context_tokens)
+        short_budget = short_section_budget(max_context_tokens)
 
-        history = state["risk_debate_state"]["history"]
+        history = truncate_text(
+            state["risk_debate_state"]["history"],
+            history_budget,
+            "risk debate history",
+        )
         risk_debate_state = state["risk_debate_state"]
-        research_plan = state["investment_plan"]
-        trader_plan = state["trader_investment_plan"]
+        research_plan = truncate_text(state["investment_plan"], report_budget, "research plan")
+        trader_plan = truncate_text(
+            state["trader_investment_plan"],
+            report_budget,
+            "trader proposal",
+        )
 
-        past_context = state.get("past_context", "")
+        past_context = truncate_text(
+            state.get("past_context", ""),
+            short_budget,
+            "prior lessons",
+        )
         lessons_line = (
             f"- Lessons from prior decisions and outcomes:\n{past_context}\n"
             if past_context
@@ -61,7 +85,8 @@ def create_portfolio_manager(llm):
 
 ---
 
-Be decisive and ground every conclusion in specific evidence from the analysts.{get_language_instruction()}"""
+Be decisive and ground every conclusion in specific evidence from the analysts. Keep Rating, final transaction action, risk posture, and sizing guidance consistent. Include uncertainty/blockers and say what evidence would change the decision. Do not add facts that are absent from the provided context.
+{get_structured_report_instruction()}{get_language_instruction()}"""
 
         final_trade_decision = invoke_structured_or_freetext(
             structured_llm,
