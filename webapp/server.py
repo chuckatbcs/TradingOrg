@@ -24,7 +24,9 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from webapp.llm_endpoint import probe_llm_endpoint
+from webapp.llm_launch import cleanup_local_models
 from webapp.llm_route_prep import (
+    LOCAL_PROVIDERS,
     LlmVerifyError,
     prepare_verify_routes as _prepare_verify_routes,
     request_llm_routes as _request_llm_routes,
@@ -485,8 +487,18 @@ def _openrouter_free_guardrail(
 def llm_verify(req: LlmVerifyRequest):
     routes, launch_notes, launch_attempted = _prepare_verify_routes(req)
     result = verify_routes(routes)
+    notes = launch_notes + list(result.get("notes") or [])
+    # Smoke remaps may auto-load extra local models; keep only the winner.
+    if result.get("ok"):
+        for route in result.get("routes") or []:
+            provider = (route.get("provider") or "").lower()
+            resolved = route.get("resolved")
+            if resolved and provider in LOCAL_PROVIDERS:
+                cleanup_note = cleanup_local_models(keep_model=resolved)
+                if cleanup_note:
+                    notes.append(f"{route.get('role')}: {cleanup_note}")
     result["launch_attempted"] = launch_attempted
-    result["notes"] = launch_notes + list(result.get("notes") or [])
+    result["notes"] = notes
     result["route_signature"] = route_signature(
         req.provider,
         req.backend_url,

@@ -1,28 +1,55 @@
 from tradingagents.agents.utils.agent_utils import (
     get_instrument_context_from_state,
     get_language_instruction,
+    get_structured_report_instruction,
 )
+from tradingagents.agents.utils.context_budget import (
+    history_section_budget,
+    max_context_tokens_from_config,
+    report_section_budget,
+    short_section_budget,
+    truncate_text,
+)
+from tradingagents.agents.utils.structured_reports import format_source_report_briefs
 
 
 def create_bear_researcher(llm):
     def bear_node(state) -> dict:
         investment_debate_state = state["investment_debate_state"]
-        history = investment_debate_state.get("history", "")
-        bear_history = investment_debate_state.get("bear_history", "")
+        max_context_tokens = max_context_tokens_from_config()
+        report_budget = report_section_budget(max_context_tokens)
+        history_budget = history_section_budget(max_context_tokens)
+        short_budget = short_section_budget(max_context_tokens)
+        history = truncate_text(
+            investment_debate_state.get("history", ""),
+            history_budget,
+            "debate history",
+        )
+        bear_history = truncate_text(
+            investment_debate_state.get("bear_history", ""),
+            history_budget,
+            "bear history",
+        )
 
-        current_response = investment_debate_state.get("current_response", "")
-        market_research_report = state["market_report"]
-        sentiment_report = state["sentiment_report"]
-        news_report = state["news_report"]
-        fundamentals_report = state["fundamentals_report"]
+        current_response = truncate_text(
+            investment_debate_state.get("current_response", ""),
+            short_budget,
+            "last bull argument",
+        )
+        source_report_briefs = format_source_report_briefs(
+            {
+                "market_report": state["market_report"],
+                "sentiment_report": state["sentiment_report"],
+                "news_report": state["news_report"],
+                "fundamentals_report": state["fundamentals_report"],
+            },
+            ticker=state.get("company_of_interest"),
+            trade_date=state.get("trade_date"),
+            max_chars=max(report_budget * 2, 3000),
+        )
         instrument_context = get_instrument_context_from_state(state)
         asset_type = state.get("asset_type", "stock")
         target_label = "stock" if asset_type == "stock" else "asset"
-        fundamentals_label = (
-            "Company fundamentals report"
-            if asset_type == "stock"
-            else "Asset fundamentals report (may be unavailable for crypto)"
-        )
 
         prompt = f"""You are a Bear Analyst making the case against investing in the {target_label}. Your goal is to present a well-reasoned argument emphasizing risks, challenges, and negative indicators. Leverage the provided research and data to highlight potential downsides and counter bullish arguments effectively.
 
@@ -37,13 +64,12 @@ Key points to focus on:
 Resources available:
 
 {instrument_context}
-Market research report: {market_research_report}
-Social media sentiment report: {sentiment_report}
-Latest world affairs news: {news_report}
-{fundamentals_label}: {fundamentals_report}
+Source report briefs:
+{source_report_briefs}
 Conversation history of the debate: {history}
 Last bull argument: {current_response}
-Use this information to deliver a compelling bear argument, refute the bull's claims, and engage in a dynamic debate that demonstrates the risks and weaknesses of investing in the {target_label}.
+Use only these source briefs and existing debate context. Do not ask for or invent new source data, exact figures, competitors, catalysts, dates, or price levels not present in the briefs. If a useful fact is missing, say it is not in the source briefs. Deliver a compact bear argument with headings: Thesis Summary, Evidence, Bull Counterpoints, Risks/Uncertainty, Recommended Action.
+{get_structured_report_instruction()}
 """ + get_language_instruction()
 
         response = llm.invoke(prompt)
@@ -51,8 +77,16 @@ Use this information to deliver a compelling bear argument, refute the bull's cl
         argument = f"Bear Analyst: {response.content}"
 
         new_investment_debate_state = {
-            "history": history + "\n" + argument,
-            "bear_history": bear_history + "\n" + argument,
+            "history": truncate_text(
+                history + "\n" + argument,
+                history_budget,
+                "debate history",
+            ),
+            "bear_history": truncate_text(
+                bear_history + "\n" + argument,
+                history_budget,
+                "bear history",
+            ),
             "bull_history": investment_debate_state.get("bull_history", ""),
             "current_response": argument,
             "count": investment_debate_state["count"] + 1,

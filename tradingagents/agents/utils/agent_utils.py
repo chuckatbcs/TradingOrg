@@ -43,6 +43,7 @@ __all__ = [
     "resolve_instrument_identity",
     "get_instrument_context_from_state",
     "get_language_instruction",
+    "get_structured_report_instruction",
     "create_msg_delete",
 ]
 
@@ -63,6 +64,18 @@ def get_language_instruction() -> str:
     if lang.strip().lower() == "english":
         return ""
     return f" Write your entire response in {lang}."
+
+
+def get_structured_report_instruction() -> str:
+    """Return lightweight markdown headings that deterministic parsers understand."""
+
+    return (
+        " Format the final answer with concise markdown headings where applicable: "
+        "Thesis Summary, Stance, Rating, Confidence, Key Points, Evidence, Risks, "
+        "Catalysts, Time Horizon, Price Target, Stop Loss, Recommended Action. "
+        "Use N/A for fields that do not apply, keep these heading labels in English, "
+        "and never output only a rating/action without evidence and risks."
+    )
 
 
 def _clean_identity_value(value: Any) -> str | None:

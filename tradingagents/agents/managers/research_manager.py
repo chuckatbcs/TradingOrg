@@ -6,6 +6,12 @@ from tradingagents.agents.schemas import ResearchPlan, render_research_plan
 from tradingagents.agents.utils.agent_utils import (
     get_instrument_context_from_state,
     get_language_instruction,
+    get_structured_report_instruction,
+)
+from tradingagents.agents.utils.context_budget import (
+    history_section_budget,
+    max_context_tokens_from_config,
+    truncate_text,
 )
 from tradingagents.agents.utils.structured import (
     bind_structured,
@@ -18,7 +24,12 @@ def create_research_manager(llm):
 
     def research_manager_node(state) -> dict:
         instrument_context = get_instrument_context_from_state(state)
-        history = state["investment_debate_state"].get("history", "")
+        history_budget = history_section_budget(max_context_tokens_from_config())
+        history = truncate_text(
+            state["investment_debate_state"].get("history", ""),
+            history_budget,
+            "debate history",
+        )
 
         investment_debate_state = state["investment_debate_state"]
 
@@ -35,12 +46,14 @@ def create_research_manager(llm):
 - **Underweight**: Cautious view; recommend trimming exposure
 - **Sell**: Strong conviction in the bear thesis; recommend exiting or avoiding the position
 
-Commit to a clear stance whenever the debate's strongest arguments warrant one; reserve Hold for situations where the evidence on both sides is genuinely balanced.
+Commit to a clear stance whenever the debate's strongest arguments warrant one; reserve Hold for situations where the evidence on both sides is genuinely balanced. Keep Rating, Stance, and Recommended Action consistent. Include evidence, risks, uncertainty/blockers, and any data gaps that would change the decision. Do not introduce facts that were not in the debate.
 
 ---
 
 **Debate History:**
-{history}""" + get_language_instruction()
+{history}
+
+{get_structured_report_instruction()}""" + get_language_instruction()
 
         investment_plan = invoke_structured_or_freetext(
             structured_llm,

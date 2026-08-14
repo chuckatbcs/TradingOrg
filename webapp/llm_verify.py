@@ -35,32 +35,46 @@ def smoke_tool_call(
     if not base or not model:
         return {"ok": False, "error": "missing base_url or model"}
     url = f"{base.rstrip('/')}/chat/completions"
-    payload = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": "Call the ping tool once."},
-            {"role": "user", "content": "ping"},
-        ],
-        "tools": [PING_TOOL],
-        "tool_choice": {"type": "function", "function": {"name": "ping"}},
-        "max_tokens": 64,
-    }
-    try:
-        resp = http_requests.post(
-            url,
-            headers={**llm_auth_headers(provider), "Content-Type": "application/json"},
-            json=payload,
-            timeout=timeout,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        msg = (data.get("choices") or [{}])[0].get("message") or {}
-        tool_calls = msg.get("tool_calls") or []
-        if not tool_calls:
-            return {"ok": False, "error": "model returned no tool_calls"}
-        return {"ok": True, "error": None}
-    except Exception as exc:
-        return {"ok": False, "error": str(exc)}
+    # LM Studio / some local servers only accept string tool_choice
+    # (none|auto|required). OpenRouter accepts the OpenAI object form too.
+    tool_choices: list[Any] = ["required", {"type": "function", "function": {"name": "ping"}}]
+    last_err: str | None = None
+    for tool_choice in tool_choices:
+        payload = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": "Call the ping tool once."},
+                {"role": "user", "content": "ping"},
+            ],
+            "tools": [PING_TOOL],
+            "tool_choice": tool_choice,
+            "max_tokens": 64,
+        }
+        try:
+            resp = http_requests.post(
+                url,
+                headers={**llm_auth_headers(provider), "Content-Type": "application/json"},
+                json=payload,
+                timeout=timeout,
+            )
+            if resp.status_code >= 400:
+                body = (resp.text or "")[:240]
+                last_err = f"HTTP {resp.status_code}: {body or resp.reason}"
+                # Retry with the other tool_choice shape when the server rejects ours.
+                if "tool_choice" in body.lower() or resp.status_code == 400:
+                    continue
+                return {"ok": False, "error": last_err}
+            data = resp.json()
+            msg = (data.get("choices") or [{}])[0].get("message") or {}
+            tool_calls = msg.get("tool_calls") or []
+            if not tool_calls:
+                last_err = "model returned no tool_calls"
+                continue
+            return {"ok": True, "error": None}
+        except Exception as exc:
+            last_err = str(exc)
+            continue
+    return {"ok": False, "error": last_err or "smoke tool call failed"}
 
 
 def verify_routes(routes: list[dict[str, Any]], *, max_candidates: int = 3) -> dict[str, Any]:

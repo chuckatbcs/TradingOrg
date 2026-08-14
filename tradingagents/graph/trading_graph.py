@@ -27,7 +27,13 @@ from tradingagents.agents.utils.agent_utils import (
     get_verified_market_snapshot,
     resolve_instrument_identity,
 )
+from tradingagents.agents.utils.context_budget import short_section_budget, truncate_text
 from tradingagents.agents.utils.memory import TradingMemoryLog
+from tradingagents.agents.utils.tool_efficiency import (
+    ToolEfficiencyTracker,
+    memoize_tool,
+    tool_output_budget,
+)
 from tradingagents.dataflows.config import set_config
 from tradingagents.dataflows.utils import safe_ticker_component
 from tradingagents.default_config import DEFAULT_CONFIG
@@ -44,6 +50,31 @@ from .signal_processing import SignalProcessor
 logger = logging.getLogger(__name__)
 
 
+def resolve_llm_config(config: dict[str, Any], role: str) -> dict[str, str | None]:
+    """Resolve provider/model/base_url for a quick or deep LLM role.
+
+    Role-specific provider/backend settings are optional. If they are absent,
+    both roles keep using the legacy single ``llm_provider`` / ``backend_url``
+    route.
+    """
+    if role not in {"quick", "deep"}:
+        raise ValueError(f"unknown LLM role: {role}")
+    role_provider = config.get(f"{role}_provider")
+    provider = role_provider or config["llm_provider"]
+    if provider == "hybrid":
+        raise ValueError(
+            "Hybrid LLM routing requires quick_provider and deep_provider; "
+            f"{role}_provider is not configured."
+        )
+    role_backend_url = config.get(f"{role}_backend_url")
+    inherit_backend_url = not role_provider or role_provider == config.get("llm_provider")
+    return {
+        "provider": provider,
+        "model": config[f"{role}_think_llm"],
+        "base_url": role_backend_url or (config.get("backend_url") if inherit_backend_url else None),
+    }
+
+
 class TradingAgentsGraph:
     """Main class that orchestrates the trading agents framework."""
 
@@ -53,6 +84,7 @@ class TradingAgentsGraph:
         debug=False,
         config: dict[str, Any] = None,
         callbacks: list | None = None,
+        start_at: str | None = None,
     ):
         """Initialize the trading agents graph and components.
 
@@ -61,10 +93,12 @@ class TradingAgentsGraph:
             debug: Whether to run in debug mode
             config: Configuration dictionary. If None, uses default config
             callbacks: Optional list of callback handlers (e.g., for tracking LLM/tool stats)
+            start_at: Optional graph node to use as START for resumed web runs
         """
         self.debug = debug
         self.config = config or DEFAULT_CONFIG
         self.callbacks = callbacks or []
+        self.selected_analysts = tuple(selected_analysts)
 
         # Update the interface's config
         set_config(self.config)
@@ -73,44 +107,47 @@ class TradingAgentsGraph:
         os.makedirs(self.config["data_cache_dir"], exist_ok=True)
         os.makedirs(self.config["results_dir"], exist_ok=True)
 
-        # Initialize LLMs with provider-specific thinking configuration
-        llm_kwargs = self._get_provider_kwargs()
-
-        # Add callbacks to kwargs if provided (passed to LLM constructor)
-        if self.callbacks:
-            llm_kwargs["callbacks"] = self.callbacks
-
+        deep_route = resolve_llm_config(self.config, "deep")
+        quick_route = resolve_llm_config(self.config, "quick")
         deep_client = create_llm_client(
-            provider=self.config["llm_provider"],
-            model=self.config["deep_think_llm"],
-            base_url=self.config.get("backend_url"),
-            **llm_kwargs,
+            provider=deep_route["provider"],
+            model=deep_route["model"],
+            base_url=deep_route["base_url"],
+            **self._get_provider_kwargs(deep_route["provider"]),
         )
         quick_client = create_llm_client(
-            provider=self.config["llm_provider"],
-            model=self.config["quick_think_llm"],
-            base_url=self.config.get("backend_url"),
-            **llm_kwargs,
+            provider=quick_route["provider"],
+            model=quick_route["model"],
+            base_url=quick_route["base_url"],
+            **self._get_provider_kwargs(quick_route["provider"]),
         )
 
         self.deep_thinking_llm = deep_client.get_llm()
         self.quick_thinking_llm = quick_client.get_llm()
 
         self.memory_log = TradingMemoryLog(self.config)
+        self.tool_efficiency_tracker = ToolEfficiencyTracker()
 
         # Create tool nodes
         self.tool_nodes = self._create_tool_nodes()
 
         # Initialize components
+        analyst_tool_call_limits = dict(self.config.get("analyst_tool_call_limits") or {})
+        analyst_tool_call_limits["fundamentals"] = int(
+            self.config.get("fundamentals_max_tool_calls", 4)
+        )
         self.conditional_logic = ConditionalLogic(
             max_debate_rounds=self.config["max_debate_rounds"],
             max_risk_discuss_rounds=self.config["max_risk_discuss_rounds"],
+            analyst_tool_call_limits=analyst_tool_call_limits,
         )
         self.graph_setup = GraphSetup(
             self.quick_thinking_llm,
             self.deep_thinking_llm,
             self.tool_nodes,
             self.conditional_logic,
+            config=self.config,
+            tool_tracker=self.tool_efficiency_tracker,
         )
 
         self.propagator = Propagator(
@@ -125,26 +162,26 @@ class TradingAgentsGraph:
         self.log_states_dict = {}  # date to full state dict
 
         # Set up the graph: keep the workflow for recompilation with a checkpointer.
-        self.workflow = self.graph_setup.setup_graph(selected_analysts)
+        self.workflow = self.graph_setup.setup_graph(self.selected_analysts, start_at=start_at)
         self.graph = self.workflow.compile()
         self._checkpointer_ctx = None
 
-    def _get_provider_kwargs(self) -> dict[str, Any]:
+    def _get_provider_kwargs(self, provider: str | None = None) -> dict[str, Any]:
         """Get provider-specific kwargs for LLM client creation."""
         kwargs = {}
-        provider = self.config.get("llm_provider", "").lower()
+        provider_key = (provider or self.config.get("llm_provider", "")).lower()
 
-        if provider == "google":
+        if provider_key == "google":
             thinking_level = self.config.get("google_thinking_level")
             if thinking_level:
                 kwargs["thinking_level"] = thinking_level
 
-        elif provider == "openai":
+        elif provider_key == "openai":
             reasoning_effort = self.config.get("openai_reasoning_effort")
             if reasoning_effort:
                 kwargs["reasoning_effort"] = reasoning_effort
 
-        elif provider == "anthropic":
+        elif provider_key == "anthropic":
             effort = self.config.get("anthropic_effort")
             if effort:
                 kwargs["effort"] = effort
@@ -155,14 +192,27 @@ class TradingAgentsGraph:
         temperature = self.config.get("temperature")
         if temperature is not None and temperature != "":
             kwargs["temperature"] = float(temperature)
+        if self.callbacks:
+            kwargs["callbacks"] = self.callbacks
 
         return kwargs
 
     def _create_tool_nodes(self) -> dict[str, ToolNode]:
         """Create tool nodes for different data sources using abstract methods."""
+        def wrap_tools(tools):
+            configured_budget = self.config.get("tool_output_max_chars")
+            return [
+                memoize_tool(
+                    tool,
+                    tracker=self.tool_efficiency_tracker,
+                    max_chars=tool_output_budget(tool.name, configured_budget),
+                )
+                for tool in tools
+            ]
+
         return {
             "market": ToolNode(
-                [
+                wrap_tools([
                     # Core stock data tools
                     get_stock_data,
                     # Technical indicators
@@ -171,32 +221,32 @@ class TradingAgentsGraph:
                     # LLM and required by its prompt; must be executable here or
                     # the call fails and the model reports it "unavailable").
                     get_verified_market_snapshot,
-                ]
+                ])
             ),
             "social": ToolNode(
-                [
+                wrap_tools([
                     # News tools for social media analysis
                     get_news,
-                ]
+                ])
             ),
             "news": ToolNode(
-                [
+                wrap_tools([
                     # News and insider information
                     get_news,
                     get_global_news,
                     get_insider_transactions,
                     get_macro_indicators,
                     get_prediction_markets,
-                ]
+                ])
             ),
             "fundamentals": ToolNode(
-                [
+                wrap_tools([
                     # Fundamental analysis tools
                     get_fundamentals,
                     get_balance_sheet,
                     get_cashflow,
                     get_income_statement,
-                ]
+                ])
             ),
         }
 
@@ -318,7 +368,13 @@ class TradingAgentsGraph:
         identity = resolve_instrument_identity(ticker)
         return build_instrument_context(ticker, asset_type, identity)
 
-    def propagate(self, company_name, trade_date, asset_type: str = "stock"):
+    def propagate(
+        self,
+        company_name,
+        trade_date,
+        asset_type: str = "stock",
+        initial_state_overrides: dict[str, Any] | None = None,
+    ):
         """Run the trading agents graph for a company on a specific date.
 
         ``asset_type`` selects between the stock pipeline (default) and the
@@ -352,7 +408,12 @@ class TradingAgentsGraph:
                 logger.info("Starting fresh for %s on %s", company_name, trade_date)
 
         try:
-            return self._run_graph(company_name, trade_date, asset_type=asset_type)
+            return self._run_graph(
+                company_name,
+                trade_date,
+                asset_type=asset_type,
+                initial_state_overrides=initial_state_overrides,
+            )
         finally:
             if self._checkpointer_ctx is not None:
                 self._checkpointer_ctx.__exit__(None, None, None)
@@ -374,11 +435,21 @@ class TradingAgentsGraph:
             )
         return write_report_tree(final_state, ticker, save_path)
 
-    def _run_graph(self, company_name, trade_date, asset_type: str = "stock"):
+    def _run_graph(
+        self,
+        company_name,
+        trade_date,
+        asset_type: str = "stock",
+        initial_state_overrides: dict[str, Any] | None = None,
+    ):
         """Execute the graph and write the resulting state to disk and memory log."""
         # Initialize state — inject memory log context for PM and the
         # deterministically resolved instrument identity for all agents.
-        past_context = self.memory_log.get_past_context(company_name)
+        past_context = truncate_text(
+            self.memory_log.get_past_context(company_name),
+            short_section_budget(self.config.get("max_context_tokens")),
+            "prior lessons",
+        )
         instrument_context = self.resolve_instrument_context(company_name, asset_type)
         init_agent_state = self.propagator.create_initial_state(
             company_name,
@@ -387,6 +458,8 @@ class TradingAgentsGraph:
             past_context=past_context,
             instrument_context=instrument_context,
         )
+        if initial_state_overrides:
+            init_agent_state.update(initial_state_overrides)
         args = self.propagator.get_graph_args()
 
         # Inject thread_id so same ticker+date resumes, different date starts fresh.
@@ -415,6 +488,8 @@ class TradingAgentsGraph:
                 final_state.update(chunk)
         else:
             final_state = self.graph.invoke(init_agent_state, **args)
+        if initial_state_overrides:
+            final_state = {**init_agent_state, **final_state}
 
         # Store current state for reflection.
         self.curr_state = final_state

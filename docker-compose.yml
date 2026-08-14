@@ -1,12 +1,43 @@
-services:
+﻿services:
   tradingagents:
     build: .
     env_file:
       - .env
     volumes:
       - tradingagents_data:/home/appuser/.tradingagents
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     tty: true
     stdin_open: true
+
+  web:
+    build: .
+    env_file:
+      - .env
+    volumes:
+      - tradingagents_data:/home/appuser/.tradingagents
+    ports:
+      - "8000:8000"
+    environment:
+      - FIRM_TRADING_MODE=paper
+      # LLM endpoint comes from .env (LM Studio: host.docker.internal:1234;
+      # OpenRouter: leave TRADINGAGENTS_LLM_BACKEND_URL unset — see docs/MODELS.md)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    entrypoint: ["uvicorn", "webapp.server:app", "--host", "0.0.0.0", "--port", "8000"]
 
   ollama:
     image: ollama/ollama:latest
@@ -24,6 +55,8 @@ services:
       - OLLAMA_BASE_URL=http://ollama:11434/v1
     volumes:
       - tradingagents_data:/home/appuser/.tradingagents
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       - ollama
     tty: true

@@ -6,10 +6,12 @@ from dataclasses import dataclass
 from typing import Any
 
 from webapp.llm_endpoint import probe_llm_endpoint
-from webapp.llm_launch import ensure_local_llm
+from webapp.llm_launch import cleanup_local_models, ensure_local_llm
 from webapp.llm_verify import verify_routes
 from webapp.model_resolution import resolve_model
 from webapp.runs import _format_route_summary
+
+LOCAL_PROVIDERS = {"openai_compatible", "ollama"}
 
 
 class LlmVerifyError(Exception):
@@ -150,11 +152,16 @@ def prepare_verify_routes(
             launch_notes.append(f"{role}: {launch.detail}")
         if launch.error and not launch.reached:
             launch_notes.append(f"{role}: launch failed: {launch.error}")
+        # Host agent may relocate LM Studio off a blocked port (e.g. 1234 → 1235).
+        if launch.backend_url:
+            backend_url = launch.backend_url
+            routes[role]["backend_url"] = backend_url
 
         probe = probe_llm_endpoint(provider, backend_url, timeout=5)
         catalog = list(probe.get("models") or [])
         if probe.get("backend_url"):
             backend_url = probe.get("backend_url")
+            routes[role]["backend_url"] = backend_url
 
         verify_inputs.append(
             {
@@ -201,6 +208,11 @@ def verify_and_apply_models(
             routes[role]["backend_url"] = route_input["backend_url"]
         if resolved:
             routes[role]["model"] = resolved
+        provider = (route_result.get("provider") or route_input.get("provider") or "").lower()
+        if resolved and provider in LOCAL_PROVIDERS:
+            cleanup_note = cleanup_local_models(keep_model=resolved)
+            if cleanup_note:
+                notes.append(f"{role}: {cleanup_note}")
     return routes, model_resolution, notes
 
 
