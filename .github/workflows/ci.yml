@@ -19,6 +19,9 @@ jobs:
         python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
+      - name: CI preflight
+        shell: powershell
+        run: .\ci-preflight.ps1
       - name: Install (with dev extras)
         run: |
           py -${{ matrix.python-version }} -m pip install --upgrade pip
@@ -31,6 +34,9 @@ jobs:
     runs-on: [self-hosted, Windows, X64, local-windows]
     steps:
       - uses: actions/checkout@v4
+      - name: CI preflight
+        shell: powershell
+        run: .\ci-preflight.ps1
       - name: Fresh install (no dev extras) and import
         run: |
           py -3.12 -m pip install --upgrade pip
@@ -44,6 +50,9 @@ jobs:
     runs-on: [self-hosted, Windows, X64, local-windows]
     steps:
       - uses: actions/checkout@v4
+      - name: CI preflight
+        shell: powershell
+        run: .\ci-preflight.ps1
       - name: Install ruff
         run: py -3.12 -m pip install "ruff>=0.15"
       - name: Lint the repository
