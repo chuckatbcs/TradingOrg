@@ -5,11 +5,8 @@ from dataclasses import dataclass
 from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select, desc
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.config import settings
-from app.models import Trade, Position, StrategyPerformance
+from app.models import Position, StrategyPerformance, Trade
 from app.services import alpaca_client
 from app.services.alpaca_client import AlpacaOrderRejectedError
 from app.services.alpaca_errors import AlpacaErrorInfo, combine_ledger_reasons
@@ -26,6 +23,8 @@ from app.services.exit_pdt_guard import (
 from app.services.performance_ledger import record_strategy_event
 from app.services.runtime_config import extended_hours_enabled
 from app.services.watchlist_manager import add_symbol as watchlist_add_symbol
+from sqlalchemy import desc, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
@@ -384,26 +383,30 @@ async def execute_order(
             "alpaca_message": exc.message,
             "alpaca_code": exc.code,
         }
-        if side.lower() == "sell" and automated and sell_pos:
-            if apply_exit_block_from_failure(sell_pos, fail_result):
-                logger.warning(
-                    "Exit backoff for %s (%s) until %s UTC (source=%s)",
-                    sym_u,
-                    sell_pos.exit_block_reason,
-                    sell_pos.exit_blocked_until,
-                    source,
-                )
-                if (sell_pos.exit_block_reason or "") == "qty_mismatch":
-                    try:
-                        from app.services.portfolio_engine import sync_positions
+        if (
+            side.lower() == "sell"
+            and automated
+            and sell_pos
+            and apply_exit_block_from_failure(sell_pos, fail_result)
+        ):
+            logger.warning(
+                "Exit backoff for %s (%s) until %s UTC (source=%s)",
+                sym_u,
+                sell_pos.exit_block_reason,
+                sell_pos.exit_blocked_until,
+                source,
+            )
+            if (sell_pos.exit_block_reason or "") == "qty_mismatch":
+                try:
+                    from app.services.portfolio_engine import sync_positions
 
-                        await sync_positions(db)
-                    except Exception as sync_err:
-                        logger.debug(
-                            "Position sync after qty mismatch failed for %s: %s",
-                            sym_u,
-                            sync_err,
-                        )
+                    await sync_positions(db)
+                except Exception as sync_err:
+                    logger.debug(
+                        "Position sync after qty mismatch failed for %s: %s",
+                        sym_u,
+                        sync_err,
+                    )
         pending_trade.status = "failed"
         fail_note = (pending_trade.notes or "")[:400]
         pending_trade.notes = f"{fail_note}|{fail_reason}"[:500]

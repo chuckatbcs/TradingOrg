@@ -17,17 +17,16 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from webapp.llm_endpoint import probe_llm_endpoint
-from webapp.llm_launch import ensure_local_llm
-from webapp.llm_verify import smoke_tool_call
-from webapp.model_resolution import resolve_model
-
 from tradingagents.agents.utils.structured_reports import (
     build_bull_bear_comparison,
     structure_reports,
 )
 from tradingagents.agents.utils.tool_efficiency import RunMetricsCollector
 from tradingagents.graph.analyst_execution import ANALYST_NODE_SPECS
+from webapp.llm_endpoint import probe_llm_endpoint
+from webapp.llm_launch import ensure_local_llm
+from webapp.llm_verify import smoke_tool_call
+from webapp.model_resolution import resolve_model
 
 logger = logging.getLogger(__name__)
 
@@ -126,9 +125,7 @@ def is_model_route_error(exc: BaseException) -> bool:
         return True
     if "endpoint" in text and ("not found" in text or "does not exist" in text):
         return True
-    if "model" in text and "404" in text:
-        return True
-    return False
+    return "model" in text and "404" in text
 
 
 def role_for_agent(agent: str | None) -> str | None:

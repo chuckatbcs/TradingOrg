@@ -189,7 +189,7 @@ def verify_and_apply_models(
         raise LlmVerifyError(notes)
 
     model_resolution: dict[str, dict] = {}
-    for route_input, route_result in zip(verify_inputs, result.get("routes") or []):
+    for route_input, route_result in zip(verify_inputs, result.get("routes") or [], strict=False):
         role = route_result.get("role") or route_input.get("role")
         if not role:
             continue

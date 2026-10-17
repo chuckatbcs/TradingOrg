@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from unittest import mock
 
-import pytest
-
 
 def test_resolve_openrouter_default_url():
     from webapp.llm_endpoint import resolve_llm_base_url

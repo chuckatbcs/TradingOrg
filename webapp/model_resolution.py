@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import hashlib
 import re
-from typing import Iterable
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
@@ -103,7 +102,7 @@ def resolve_model(
         requested=requested,
         resolved=pick,
         remapped=True,
-        reason=f"closest match (family/tier/name score; preferred missing)",
+        reason="closest match (family/tier/name score; preferred missing)",
         catalog_fingerprint=fp,
     )
 

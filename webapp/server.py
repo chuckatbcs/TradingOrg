@@ -804,9 +804,12 @@ def firm_screen(top_n: int = 10, pass_only: bool = False):
     }
 
 
+_QUEUE_SCREEN_BODY = Body(default=None)
+
+
 @app.post("/api/firm/queue-screen")
 def firm_queue_screen(
-    req: QueueScreenRequest | None = Body(default=None),
+    req: QueueScreenRequest | None = _QUEUE_SCREEN_BODY,
     top_n: int | None = None,
 ):
     """Screen watchlist and queue top finalists for TradingAgents analysis."""

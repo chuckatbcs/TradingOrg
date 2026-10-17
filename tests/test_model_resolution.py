@@ -1,5 +1,5 @@
 # tests/test_model_resolution.py
-from webapp.model_resolution import resolve_model, score_candidate, catalog_fingerprint
+from webapp.model_resolution import catalog_fingerprint, resolve_model
 
 
 def test_exact_match_not_remapped():

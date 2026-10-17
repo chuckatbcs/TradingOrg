@@ -11,18 +11,18 @@ from firm.universe.market_screener import resolve_screening_universe, scan_marke
 
 
 def _default_scan_config(**overrides):
-    base = dict(
-        market_screener_max=200,
-        market_screener_actives_top=100,
-        market_screener_min_price=5.0,
-        market_screener_movers_min_pct=2.0,
-        market_screener_include_actives=True,
-        market_screener_include_actives_by_trades=False,
-        market_screener_include_movers=True,
-        market_screener_include_watchlist=False,
-        market_screener_include_spy_holdings=False,
-        market_screener_spy_holdings_top=15,
-    )
+    base = {
+        "market_screener_max": 200,
+        "market_screener_actives_top": 100,
+        "market_screener_min_price": 5.0,
+        "market_screener_movers_min_pct": 2.0,
+        "market_screener_include_actives": True,
+        "market_screener_include_actives_by_trades": False,
+        "market_screener_include_movers": True,
+        "market_screener_include_watchlist": False,
+        "market_screener_include_spy_holdings": False,
+        "market_screener_spy_holdings_top": 15,
+    }
     base.update(overrides)
     return MagicMock(**base)
 

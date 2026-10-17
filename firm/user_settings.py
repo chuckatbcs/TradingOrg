@@ -301,9 +301,10 @@ def validate_setting(key: str, raw: Any) -> int | float | str | bool:
     except (TypeError, ValueError) as exc:
         raise ValueError(f"{key}: invalid value") from exc
     meta = SETTING_META[key]
-    if meta["type"] in ("int", "float"):
-        if value < meta["min"] or value > meta["max"]:
-            raise ValueError(f"{key}: must be between {meta['min']} and {meta['max']}")
+    if meta["type"] in ("int", "float") and (
+        value < meta["min"] or value > meta["max"]
+    ):
+        raise ValueError(f"{key}: must be between {meta['min']} and {meta['max']}")
     return value
 
 

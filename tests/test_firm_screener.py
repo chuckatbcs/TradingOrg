@@ -3,15 +3,9 @@
 
 
 import pandas as pd
-
 import pytest
 
-
-
 from firm.universe.screener import ScreenResult, _volume_ratio, screen_symbol, screen_universe
-
-
-
 
 
 @pytest.mark.unit
