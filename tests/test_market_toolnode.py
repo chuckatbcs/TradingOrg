@@ -12,8 +12,11 @@ from tradingagents.graph.trading_graph import TradingAgentsGraph
 
 @pytest.mark.unit
 def test_market_toolnode_can_execute_verified_snapshot():
-    # _create_tool_nodes does not use self -> call unbound (avoids building LLMs).
-    nodes = TradingAgentsGraph._create_tool_nodes(None)
+    # Avoid building LLMs. The method only reads config and the tool tracker.
+    graph = TradingAgentsGraph.__new__(TradingAgentsGraph)
+    graph.config = {}
+    graph.tool_efficiency_tracker = None
+    nodes = TradingAgentsGraph._create_tool_nodes(graph)
     market_tools = set(nodes["market"].tools_by_name)
     assert "get_verified_market_snapshot" in market_tools, (
         "get_verified_market_snapshot is bound to the market analyst but not "

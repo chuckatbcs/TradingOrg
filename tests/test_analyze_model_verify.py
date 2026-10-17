@@ -18,7 +18,9 @@ def test_analyze_resolves_missing_model(monkeypatch):
          mock.patch("webapp.llm_route_prep.ensure_local_llm") as launch, \
          mock.patch("webapp.llm_verify.smoke_tool_call", return_value={"ok": True, "error": None}), \
          mock.patch.object(manager, "start_run", return_value={"id": "abc", "status": "queued"}) as start:
-        launch.return_value = mock.Mock(attempted=False, reached=True, error=None, detail=None)
+        launch.return_value = mock.Mock(
+            attempted=False, reached=True, error=None, detail=None, backend_url=None
+        )
         res = client.post("/api/analyze", json={
             "ticker": "NVDA",
             "trade_date": "2026-07-23",
@@ -76,7 +78,9 @@ def test_analyze_rejects_failed_verify(monkeypatch):
          mock.patch("webapp.llm_route_prep.ensure_local_llm") as launch, \
          mock.patch("webapp.llm_verify.smoke_tool_call", return_value={"ok": False, "error": "no tools"}), \
          mock.patch.object(manager, "start_run") as start:
-        launch.return_value = mock.Mock(attempted=False, reached=True, error=None, detail=None)
+        launch.return_value = mock.Mock(
+            attempted=False, reached=True, error=None, detail=None, backend_url=None
+        )
         res = client.post("/api/analyze", json={
             "ticker": "NVDA",
             "trade_date": "2026-07-23",

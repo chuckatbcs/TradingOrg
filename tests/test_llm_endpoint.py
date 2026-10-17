@@ -113,7 +113,7 @@ def test_model_presets_include_hybrid_local_quick_openrouter_deep():
     assert preset["quick_think_llm"] == "qwen/qwen3-4b-2507"
     assert preset["deep_provider"] == "openrouter"
     assert preset["deep_backend_url"] is None
-    assert preset["deep_think_llm"] == "meta-llama/llama-3.3-70b-instruct:free"
+    assert preset["deep_think_llm"] == "google/gemma-4-26b-a4b-it:free"
 
 
 def test_resolve_health_backend_url_explicit_provider():

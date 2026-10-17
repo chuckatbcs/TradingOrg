@@ -205,7 +205,9 @@ def test_queue_screener_applies_default_model_verify(monkeypatch):
         mock.patch("webapp.llm_route_prep.probe_llm_endpoint", return_value=fake_probe),
         mock.patch(
             "webapp.llm_route_prep.ensure_local_llm",
-            return_value=mock.Mock(attempted=False, reached=True, error=None, detail=None),
+            return_value=mock.Mock(
+                attempted=False, reached=True, error=None, detail=None, backend_url=None
+            ),
         ),
         mock.patch(
             "webapp.llm_verify.smoke_tool_call",
@@ -240,7 +242,9 @@ def test_queue_screen_api_passes_selected_model_routes(monkeypatch):
         with mock.patch("webapp.llm_route_prep.probe_llm_endpoint", return_value=fake_probe), \
              mock.patch("webapp.llm_route_prep.ensure_local_llm") as launch, \
              mock.patch("webapp.llm_verify.smoke_tool_call", return_value={"ok": True, "error": None}):
-            launch.return_value = mock.Mock(attempted=False, reached=True, error=None, detail=None)
+            launch.return_value = mock.Mock(
+                attempted=False, reached=True, error=None, detail=None, backend_url=None
+            )
             yield
 
     captured = {}

@@ -65,6 +65,7 @@ class TestProviderKwargsTemperature:
         # Call the method without constructing the full graph.
         graph = TradingAgentsGraph.__new__(TradingAgentsGraph)
         graph.config = {"llm_provider": "openai", "temperature": temperature}
+        graph.callbacks = None
         return TradingAgentsGraph._get_provider_kwargs(graph)
 
     def test_float_string_coerced(self):
