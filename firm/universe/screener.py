@@ -4,24 +4,13 @@
 
 from __future__ import annotations
 
-
-
 from dataclasses import dataclass, field
 
-
-
 import pandas as pd
-
 import yfinance as yf
-
 from stockstats import wrap as stockstats_wrap
 
-
-
 from firm.config import FIRM_CONFIG
-
-
-
 
 
 @dataclass

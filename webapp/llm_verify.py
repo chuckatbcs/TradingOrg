@@ -9,7 +9,6 @@ import requests as http_requests
 from webapp.llm_endpoint import llm_auth_headers, resolve_llm_base_url
 from webapp.model_resolution import resolve_model
 
-
 PING_TOOL = {
     "type": "function",
     "function": {

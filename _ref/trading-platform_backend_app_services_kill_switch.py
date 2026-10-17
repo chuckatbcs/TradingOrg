@@ -9,17 +9,15 @@ event for UI notifications.
 import json
 import logging
 from dataclasses import dataclass
-from datetime import datetime, time, timezone
-from typing import Optional
+from datetime import datetime, time
 from zoneinfo import ZoneInfo
-
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc
 
 from app.config import settings
 from app.models import KillSwitchEvent, KillSwitchMonitorState
 from app.services import alpaca_client
 from app.services.trade_sync import record_kill_switch_close_orders
+from sqlalchemy import desc, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
@@ -154,7 +152,7 @@ async def _set_daily_loss_baseline(db: AsyncSession, equity: float) -> None:
     await db.flush()
 
 
-async def _latest_liquidation_event(db: AsyncSession) -> Optional[KillSwitchEvent]:
+async def _latest_liquidation_event(db: AsyncSession) -> KillSwitchEvent | None:
     result = await db.execute(
         select(KillSwitchEvent).order_by(desc(KillSwitchEvent.triggered_at)).limit(1)
     )
@@ -252,8 +250,8 @@ async def check_daily_loss(db: AsyncSession, *, auto_trigger: bool = True) -> di
 async def trigger_kill_switch(
     db: AsyncSession,
     reason: str,
-    equity: Optional[float] = None,
-    daily_pnl: Optional[float] = None,
+    equity: float | None = None,
+    daily_pnl: float | None = None,
 ) -> dict:
     """
     Loss protection action:

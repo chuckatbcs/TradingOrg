@@ -2,7 +2,6 @@
 
 from tradingagents.agents.utils.agent_states import AgentState
 
-
 DEFAULT_ANALYST_TOOL_CALL_LIMITS = {
     "market": 8,
     "social": 4,

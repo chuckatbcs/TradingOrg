@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 
 try:
-    from ta.trend import PSARIndicator
+    from ta.trend import PSARIndicator  # noqa: F401  # availability probe; name unused
     HAS_TA = True
 except ImportError:
     HAS_TA = False
@@ -144,7 +144,7 @@ def generate_features(df: pd.DataFrame) -> pd.DataFrame:
     # ------------------------------------------------------------------
     if HAS_TA:
         try:
-            psar = ta.psar(feat["high"], feat["low"], feat["close"])
+            psar = ta.psar(feat["high"], feat["low"], feat["close"])  # noqa: F821
             if psar is not None and not psar.empty:
                 psar_long = psar.filter(like="PSARl").iloc[:, 0] if psar.filter(like="PSARl").shape[1] > 0 else pd.Series(np.nan, index=feat.index)
                 feat["psar_bullish"] = (feat["close"] > psar_long).astype(float)

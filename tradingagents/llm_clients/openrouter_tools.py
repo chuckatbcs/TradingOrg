@@ -127,7 +127,7 @@ def validate_openrouter_model_for_agents(
     if catalog is None:
         try:
             catalog = fetch_openrouter_catalog(api_key=api_key, timeout=timeout)
-        except Exception as exc:
+        except Exception:
             if looks_like_reasoning_without_tools(model_id):
                 return (
                     f"Model '{model_id}' appears to be a reasoning-only model without "
